@@ -16,56 +16,36 @@ export const reportService = {
 
       if (error) throw error;
 
+      // Notify admins only (not the reporter)
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
-        .eq('role', 'admin');
+        .eq('role', 'admin')
+        .neq('id', reportData.user_id);
 
       for (const admin of admins || []) {
         await notificationService.createNotification({
           userId: admin.id,
-          title: 'New Waste Report',
-          message: `New ${reportData.is_emergency ? 'EMERGENCY ' : ''}report at ${reportData.address}`,
+          title: reportData.is_emergency ? '🚨 EMERGENCY REPORT' : 'New Waste Report',
+          message: `${reportData.is_emergency ? 'EMERGENCY - ' : ''}New report at ${reportData.address}`,
           type: reportData.is_emergency ? 'error' : 'info',
-          reportId: data.id,
-          actionUrl: `/admin`
-        });
-      }
-
-      const { data: workers } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'worker')
-        .eq('zone', reportData.zone)
-        .eq('available', true);
-
-      for (const worker of workers || []) {
-        await notificationService.createNotification({
-          userId: worker.id,
-          title: 'New Job Available',
-          message: `${reportData.is_emergency ? 'EMERGENCY - ' : ''}New waste report in ${reportData.zone}`,
-          type: reportData.is_emergency ? 'error' : 'success',
-          reportId: data.id,
-          actionUrl: `/worker`
+          reportId: data.id
         });
       }
 
       return { success: true, data };
     } catch (error) {
-      console.error('Failed to create report:', error);
       return { success: false, error: error.message };
     }
   },
 
-  assignWorker: async (reportId, workerId, adminId) => {
+  assignWorker: async (reportId, workerId) => {
     try {
       const { data: report } = await supabase
         .from('waste_reports')
         .select('*')
         .eq('id', reportId)
         .single();
-
-      if (!report) throw new Error('Report not found');
 
       const { error } = await supabase
         .from('waste_reports')
@@ -79,27 +59,26 @@ export const reportService = {
 
       if (error) throw error;
 
+      // Notify worker
       await notificationService.createNotification({
         userId: workerId,
         title: 'New Task Assigned',
         message: `You have been assigned to collect waste at ${report.address}`,
         type: 'success',
-        reportId: reportId,
-        actionUrl: `/report/${reportId}`
+        reportId: reportId
       });
 
+      // Notify resident
       await notificationService.createNotification({
         userId: report.user_id,
         title: 'Worker Assigned',
-        message: `A worker has been assigned to your report at ${report.address}. You can now track their location.`,
+        message: `A worker has been assigned to your report at ${report.address}`,
         type: 'success',
-        reportId: reportId,
-        actionUrl: `/report/${reportId}`
+        reportId: reportId
       });
 
       return { success: true };
     } catch (error) {
-      console.error('Failed to assign worker:', error);
       return { success: false, error: error.message };
     }
   },
@@ -112,8 +91,6 @@ export const reportService = {
         .eq('id', reportId)
         .single();
 
-      if (!report) throw new Error('Report not found');
-
       const { error } = await supabase
         .from('waste_reports')
         .update({
@@ -122,29 +99,32 @@ export const reportService = {
           worker_note: note,
           updated_at: new Date().toISOString()
         })
-        .eq('id', reportId)
-        .eq('assigned_worker_id', workerId);
+        .eq('id', reportId);
 
       if (error) throw error;
 
       await notificationService.createNotification({
         userId: report.user_id,
         title: 'Waste Collected',
-        message: `The waste at ${report.address} has been collected. Please verify when you confirm.`,
+        message: `The waste at ${report.address} has been collected. Please verify.`,
         type: 'success',
-        reportId: reportId,
-        actionUrl: `/report/${reportId}`
+        reportId: reportId
       });
 
       return { success: true };
     } catch (error) {
-      console.error('Failed to mark as collected:', error);
       return { success: false, error: error.message };
     }
   },
 
-  markAsVerified: async (reportId, userId, rating = null, review = '') => {
+  markAsVerified: async (reportId, rating = null, review = '') => {
     try {
+      const { data: report } = await supabase
+        .from('waste_reports')
+        .select('*, profiles!assigned_worker_id(*)')
+        .eq('id', reportId)
+        .single();
+
       const updates = {
         status: 'verified',
         verified_at: new Date().toISOString(),
@@ -165,21 +145,8 @@ export const reportService = {
 
       if (error) throw error;
 
-      const { data: report } = await supabase
-        .from('waste_reports')
-        .select('*, profiles!assigned_worker_id(full_name, rating, rating_count, completed_jobs)')
-        .eq('id', reportId)
-        .single();
-
-      if (rating && report?.assigned_worker_id) {
-        await notificationService.createNotification({
-          userId: report.assigned_worker_id,
-          title: 'Job Verified',
-          message: `Your job at ${report.address} has been verified with a ${rating}⭐ rating!`,
-          type: 'success',
-          reportId: reportId
-        });
-
+      // Update worker's rating (not admin)
+      if (rating && report.assigned_worker_id) {
         const worker = report.profiles;
         const newRatingCount = (worker.rating_count || 0) + 1;
         const newRating = ((worker.rating || 0) * (worker.rating_count || 0) + rating) / newRatingCount;
@@ -192,49 +159,20 @@ export const reportService = {
             completed_jobs: (worker.completed_jobs || 0) + 1
           })
           .eq('id', report.assigned_worker_id);
+
+        // Notify worker about rating
+        await notificationService.createNotification({
+          userId: report.assigned_worker_id,
+          title: 'New Rating Received!',
+          message: `You received a ${rating}⭐ rating for your work at ${report.address}`,
+          type: 'success',
+          reportId: reportId
+        });
       }
 
       return { success: true };
     } catch (error) {
-      console.error('Failed to mark as verified:', error);
       return { success: false, error: error.message };
-    }
-  },
-
-  getWorkerLocation: async (workerId) => {
-    try {
-      const { data, error } = await supabase
-        .from('worker_locations')
-        .select('*')
-        .eq('worker_id', workerId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
-    } catch (error) {
-      console.error('Failed to get worker location:', error);
-      return null;
-    }
-  },
-
-  updateWorkerLocation: async (workerId, latitude, longitude, accuracy = null) => {
-    try {
-      const { error } = await supabase
-        .from('worker_locations')
-        .upsert({
-          worker_id: workerId,
-          latitude,
-          longitude,
-          accuracy,
-          timestamp: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-      return { success: true };
-    } catch (error) {
-      console.error('Failed to update location:', error);
-      return { success: false };
     }
   }
 };

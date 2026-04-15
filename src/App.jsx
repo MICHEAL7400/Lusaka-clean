@@ -14,12 +14,12 @@ import Worker from './pages/Worker';
 import Report from './pages/Report';
 import ReportDetails from './pages/ReportDetails';
 import MyReports from './pages/MyReports';
+import EditReport from './pages/EditReport';
 import Profile from './pages/Profile';
 import Map from './pages/Map';
 import About from './pages/About';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
-import AdminAnalytics from './pages/AdminAnalytics';
 
 // Components
 import Navbar from './components/layout/Navbar';
@@ -57,27 +57,28 @@ function AppContent() {
       <main className="flex-1 p-4 md:p-6">
         <div className="max-w-7xl mx-auto">
           <Routes>
-            {/* Public Routes */}
+            {/* Public Routes - Everyone can access */}
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/about" element={<About />} />
             <Route path="/map" element={<Map />} />
             
-            {/* Resident Routes */}
+            {/* Resident Routes - Only residents can access */}
             {user && user.role === 'resident' && (
               <>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/report" element={<Report />} />
                 <Route path="/report/:id" element={<ReportDetails />} />
                 <Route path="/my-reports" element={<MyReports />} />
+                <Route path="/edit-report/:id" element={<EditReport />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/settings" element={<Settings />} />
               </>
             )}
             
-            {/* Worker Routes */}
+            {/* Worker Routes - Only workers can access */}
             {user && user.role === 'worker' && (
               <>
                 <Route path="/dashboard" element={<Worker user={user} />} />
@@ -88,12 +89,11 @@ function AppContent() {
               </>
             )}
             
-            {/* Admin Routes */}
+            {/* Admin Routes - Only admin can access */}
             {user && user.role === 'admin' && (
               <>
                 <Route path="/dashboard" element={<Admin />} />
                 <Route path="/admin" element={<Admin />} />
-                <Route path="/admin/analytics" element={<AdminAnalytics />} />
                 <Route path="/report/:id" element={<ReportDetails />} />
                 <Route path="/profile" element={<Profile />} />
                 <Route path="/notifications" element={<Notifications />} />
@@ -101,7 +101,7 @@ function AppContent() {
               </>
             )}
             
-            {/* Catch all route */}
+            {/* Catch all - Redirect based on login status */}
             <Route path="*" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
           </Routes>
         </div>
