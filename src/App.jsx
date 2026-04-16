@@ -20,6 +20,8 @@ import Map from './pages/Map';
 import About from './pages/About';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // Components
 import Navbar from './components/layout/Navbar';
@@ -63,6 +65,8 @@ function AppContent() {
             <Route path="/register" element={<Register />} />
             <Route path="/about" element={<About />} />
             <Route path="/map" element={<Map />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             
             {/* Resident Routes - Only residents can access */}
             {user && user.role === 'resident' && (

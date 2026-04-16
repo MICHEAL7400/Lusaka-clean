@@ -13,7 +13,6 @@ const Register = () => {
     password: '',
     confirmPassword: '',
     zone: 'Matero',
-    // Worker specific fields
     workerId: '',
     vehicleType: '',
     experience: ''
@@ -21,7 +20,7 @@ const Register = () => {
   
   const navigate = useNavigate();
   const zones = ['Matero', 'Chilene', 'Kabwata', 'CBD', 'Kanyama', 'Chawama', 'Mandevu'];
-  const vehicleTypes = ['Truck - Large Collection', 'Pickup - Medium Loads', 'Motorbike - Small Loads', 'Bicycle - Recycling', 'None'];
+  const vehicleTypes = ['Truck', 'Pickup', 'Motorbike', 'Bicycle', 'None'];
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -64,15 +63,15 @@ const Register = () => {
       
       if (authError) throw authError;
       
-      // Create profile
+      // Create profile with all fields
       const profileData = {
         id: authData.user?.id,
         email: formData.email,
         full_name: formData.fullName,
         role: selectedRole,
-        phone: formData.phone,
+        phone: formData.phone || '',
         zone: formData.zone,
-        available: selectedRole === 'worker' ? false : null
+        created_at: new Date().toISOString()
       };
       
       // Add worker-specific fields
@@ -83,13 +82,14 @@ const Register = () => {
         profileData.available = false;
         profileData.completed_jobs = 0;
         profileData.rating = 0;
+        profileData.rating_count = 0;
       }
       
       const { error: profileError } = await supabase
         .from('profiles')
-        .insert([profileData]);
+        .upsert([profileData], { onConflict: 'id' });
       
-      if (profileError && profileError.code !== '23505') {
+      if (profileError) {
         console.error('Profile error:', profileError);
       }
       

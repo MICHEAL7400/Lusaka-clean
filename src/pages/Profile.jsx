@@ -1,14 +1,31 @@
-import React, { useState } from 'react';
-import { useSelector } from 'react-redux';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 const Profile = () => {
-  const { user } = useSelector((state) => state.auth);
+  const [user, setUser] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [fullName, setFullName] = useState(user?.full_name || '');
-  const [phone, setPhone] = useState(user?.phone || '');
+  const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
+    zone: 'Matero'
+  });
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      setUser(parsedUser);
+      setFormData({
+        full_name: parsedUser.full_name || '',
+        phone: parsedUser.phone || '',
+        zone: parsedUser.zone || 'Matero'
+      });
+    }
+  }, []);
+
+  const zones = ['Matero', 'Chilene', 'Kabwata', 'CBD', 'Kanyama', 'Chawama', 'Mandevu'];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,13 +35,19 @@ const Profile = () => {
       const { error } = await supabase
         .from('profiles')
         .update({
-          full_name: fullName,
-          phone: phone,
+          full_name: formData.full_name,
+          phone: formData.phone,
+          zone: formData.zone,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
       
       if (error) throw error;
+      
+      // Update local storage
+      const updatedUser = { ...user, ...formData };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
       
       toast.success('Profile updated successfully');
       setIsEditing(false);
@@ -46,8 +69,8 @@ const Profile = () => {
   }
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">My Profile</h1>
+    <div className="max-w-2xl mx-auto space-y-6">
+      <h1 className="text-2xl font-bold">My Profile</h1>
       
       <div className="bg-white rounded-lg shadow">
         <div className="p-4 border-b flex justify-between items-center">
@@ -69,8 +92,8 @@ const Profile = () => {
                 <label className="block text-sm font-medium mb-1">Full Name</label>
                 <input
                   type="text"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  value={formData.full_name}
+                  onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg"
                   required
                 />
@@ -80,21 +103,35 @@ const Profile = () => {
                 <label className="block text-sm font-medium mb-1">Email</label>
                 <input
                   type="email"
-                  value={user?.email}
+                  value={user.email}
                   disabled
                   className="w-full px-3 py-2 border rounded-lg bg-gray-50"
                 />
+                <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
               </div>
               
               <div>
                 <label className="block text-sm font-medium mb-1">Phone Number</label>
                 <input
                   type="tel"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   placeholder="0977 123456"
                   className="w-full px-3 py-2 border rounded-lg"
                 />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Zone / Area</label>
+                <select
+                  value={formData.zone}
+                  onChange={(e) => setFormData({ ...formData, zone: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg"
+                >
+                  {zones.map(zone => (
+                    <option key={zone} value={zone}>{zone}</option>
+                  ))}
+                </select>
               </div>
               
               <div className="flex gap-3 pt-2">
@@ -118,28 +155,47 @@ const Profile = () => {
             <div className="space-y-3">
               <div>
                 <p className="text-sm text-gray-500">Full Name</p>
-                <p className="font-medium">{user?.full_name || 'Not set'}</p>
+                <p className="font-medium">{user.full_name || 'Not set'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Email</p>
-                <p className="font-medium">{user?.email}</p>
+                <p className="font-medium">{user.email}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Phone</p>
-                <p className="font-medium">{user?.phone || 'Not provided'}</p>
+                <p className="font-medium">{user.phone || 'Not provided'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Zone</p>
-                <p className="font-medium">{user?.zone || 'Not set'}</p>
+                <p className="font-medium">{user.zone || 'Not set'}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500">Role</p>
-                <p className="font-medium capitalize">{user?.role}</p>
+                <p className="font-medium capitalize">{user.role}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Member Since</p>
+                <p className="font-medium">{user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Recently'}</p>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Worker Information - Only shows for workers */}
+      {user.role === 'worker' && (
+        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+          <h3 className="font-semibold mb-2 text-blue-800">Worker Information</h3>
+          <div className="space-y-1 text-sm">
+            <p><span className="text-gray-600">Worker ID:</span> {user.worker_id || 'Not assigned'}</p>
+            <p><span className="text-gray-600">Vehicle Type:</span> {user.vehicle_type || 'Not specified'}</p>
+            <p><span className="text-gray-600">Experience:</span> {user.experience || 'Not specified'}</p>
+            <p><span className="text-gray-600">Jobs Completed:</span> {user.completed_jobs || 0}</p>
+            <p><span className="text-gray-600">Rating:</span> {user.rating || 0}⭐ ({user.rating_count || 0} reviews)</p>
+            <p><span className="text-gray-600">Status:</span> {user.available ? 'Available' : 'Offline'}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

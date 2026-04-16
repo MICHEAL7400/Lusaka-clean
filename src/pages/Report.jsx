@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { supabase } from '../lib/supabase';
@@ -98,7 +98,7 @@ const Report = () => {
     if (!photoFile) return null;
     
     const fileName = `${Date.now()}_${photoFile.name}`;
-    const { data, error } = await supabase.storage
+    const { error } = await supabase.storage
       .from('report-images')
       .upload(fileName, photoFile);
     
@@ -107,11 +107,11 @@ const Report = () => {
       return null;
     }
     
-    const { data: { publicUrl } } = supabase.storage
+    const { data: urlData } = supabase.storage
       .from('report-images')
       .getPublicUrl(fileName);
     
-    return publicUrl;
+    return urlData.publicUrl;
   };
 
   const handleSubmit = async (e) => {
@@ -137,7 +137,8 @@ const Report = () => {
     try {
       const photoUrl = await uploadPhoto();
       
-      const { error } = await supabase
+      // Insert report and get the ID back
+      const { data: insertedReport, error: insertError } = await supabase
         .from('waste_reports')
         .insert([{
           user_id: user.id,
@@ -151,9 +152,12 @@ const Report = () => {
           zone: zone,
           status: 'pending',
           created_at: new Date().toISOString()
-        }]);
+        }])
+        .select();
       
-      if (error) throw error;
+      if (insertError) throw insertError;
+      
+      const reportId = insertedReport?.[0]?.id;
       
       // Create notification for admins
       const { data: admins } = await supabase
@@ -167,7 +171,7 @@ const Report = () => {
           title: formData.is_emergency ? '🚨 EMERGENCY REPORT' : 'New Waste Report',
           message: `${formData.is_emergency ? 'EMERGENCY - ' : ''}New report at ${formData.address}`,
           type: formData.is_emergency ? 'error' : 'info',
-          report_id: data?.id
+          report_id: reportId
         }]);
       }
       
@@ -175,8 +179,8 @@ const Report = () => {
       navigate('/dashboard');
       
     } catch (err) {
-      console.error(err);
-      toast.error('Failed to submit report');
+      console.error('Submit error:', err);
+      toast.error('Failed to submit report. Please try again.');
     } finally {
       setLoading(false);
     }
