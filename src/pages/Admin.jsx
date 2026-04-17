@@ -17,6 +17,8 @@ const Admin = () => {
   const [broadcastTitle, setBroadcastTitle] = useState('');
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastType, setBroadcastType] = useState('info');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
@@ -30,14 +32,12 @@ const Admin = () => {
 
   useEffect(() => {
     loadAllData();
-    // Auto refresh every 30 seconds
     const interval = setInterval(loadAllData, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const loadAllData = async () => {
     try {
-      // Load reports
       const { data: reportsData, error: reportsError } = await supabase
         .from('waste_reports')
         .select('*, profiles:user_id(full_name, email, phone)')
@@ -46,7 +46,6 @@ const Admin = () => {
       if (reportsError) throw reportsError;
       setReports(reportsData || []);
       
-      // Load workers
       const { data: workersData, error: workersError } = await supabase
         .from('profiles')
         .select('*')
@@ -56,7 +55,6 @@ const Admin = () => {
       if (workersError) throw workersError;
       setWorkers(workersData || []);
       
-      // Load residents
       const { data: residentsData, error: residentsError } = await supabase
         .from('profiles')
         .select('*')
@@ -66,7 +64,6 @@ const Admin = () => {
       if (residentsError) throw residentsError;
       setResidents(residentsData || []);
       
-      // Load notifications
       const { data: notifData, error: notifError } = await supabase
         .from('notifications')
         .select('*')
@@ -76,7 +73,6 @@ const Admin = () => {
       if (notifError) throw notifError;
       setNotifications(notifData || []);
       
-      // Calculate stats
       const thisMonth = new Date();
       thisMonth.setDate(1);
       const reportsThisMonth = reportsData?.filter(r => new Date(r.created_at) >= thisMonth) || [];
@@ -102,29 +98,14 @@ const Admin = () => {
 
   const updateReportStatus = async (reportId, status) => {
     try {
-      const updates = { 
-        status, 
-        updated_at: new Date().toISOString() 
-      };
+      const updates = { status, updated_at: new Date().toISOString() };
+      if (status === 'collected') updates.collected_at = new Date().toISOString();
+      if (status === 'verified') updates.verified_at = new Date().toISOString();
       
-      if (status === 'collected') {
-        updates.collected_at = new Date().toISOString();
-      }
-      if (status === 'verified') {
-        updates.verified_at = new Date().toISOString();
-      }
-      
-      const { error } = await supabase
-        .from('waste_reports')
-        .update(updates)
-        .eq('id', reportId);
-      
+      const { error } = await supabase.from('waste_reports').update(updates).eq('id', reportId);
       if (error) throw error;
       
-      // Get report details for notification
       const report = reports.find(r => r.id === reportId);
-      
-      // Notify resident
       if (report) {
         await supabase.from('notifications').insert([{
           user_id: report.user_id,
@@ -137,9 +118,7 @@ const Admin = () => {
       
       toast.success(`Report marked as ${status}`);
       loadAllData();
-      
     } catch (err) {
-      console.error('Error updating status:', err);
       toast.error('Failed to update status');
     }
   };
@@ -152,17 +131,11 @@ const Admin = () => {
       
       const { error } = await supabase
         .from('waste_reports')
-        .update({ 
-          assigned_worker_id: workerId, 
-          status: 'assigned', 
-          assigned_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
+        .update({ assigned_worker_id: workerId, status: 'assigned', assigned_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', reportId);
       
       if (error) throw error;
       
-      // Notify worker
       if (worker) {
         await supabase.from('notifications').insert([{
           user_id: workerId,
@@ -173,7 +146,6 @@ const Admin = () => {
         }]);
       }
       
-      // Notify resident
       if (report) {
         await supabase.from('notifications').insert([{
           user_id: report.user_id,
@@ -188,9 +160,7 @@ const Admin = () => {
       loadAllData();
       setShowAssignModal(false);
       setSelectedReport(null);
-      
     } catch (err) {
-      console.error('Error assigning worker:', err);
       toast.error('Failed to assign worker');
     } finally {
       setAssigning(false);
@@ -215,7 +185,6 @@ const Admin = () => {
           type: broadcastType,
           created_at: new Date().toISOString()
         }]);
-        
         if (!error) sentCount++;
       }
       
@@ -224,83 +193,53 @@ const Admin = () => {
       setBroadcastTitle('');
       setBroadcastMessage('');
       loadAllData();
-      
     } catch (err) {
-      console.error('Error sending broadcast:', err);
       toast.error('Failed to send broadcast');
     }
   };
 
   const deleteReport = async (reportId) => {
-    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) return;
-    
+    if (!confirm('Delete this report?')) return;
     try {
-      const { error } = await supabase
-        .from('waste_reports')
-        .delete()
-        .eq('id', reportId);
-      
-      if (error) throw error;
-      
-      toast.success('Report deleted successfully');
+      await supabase.from('waste_reports').delete().eq('id', reportId);
+      toast.success('Report deleted');
       loadAllData();
-      
     } catch (err) {
-      console.error('Error deleting report:', err);
-      toast.error('Failed to delete report');
+      toast.error('Failed to delete');
     }
   };
 
   const toggleWorkerAvailability = async (workerId, currentStatus) => {
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ available: !currentStatus, updated_at: new Date().toISOString() })
-        .eq('id', workerId);
-      
-      if (error) throw error;
-      
+      await supabase.from('profiles').update({ available: !currentStatus }).eq('id', workerId);
       toast.success(`Worker ${!currentStatus ? 'activated' : 'deactivated'}`);
       loadAllData();
-      
     } catch (err) {
-      console.error('Error toggling worker:', err);
       toast.error('Failed to update worker status');
     }
   };
 
   const deleteUser = async (userId, userRole) => {
-    if (!confirm(`Are you sure you want to delete this ${userRole}? All their data will be removed.`)) return;
-    
+    if (!confirm(`Delete this ${userRole}? All data will be removed.`)) return;
     try {
-      // Delete user's reports first
       await supabase.from('waste_reports').delete().eq('user_id', userId);
-      
-      // Delete user's notifications
       await supabase.from('notifications').delete().eq('user_id', userId);
-      
-      // Delete user profile
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
-      
-      if (error) throw error;
-      
-      toast.success(`${userRole} deleted successfully`);
+      await supabase.from('profiles').delete().eq('id', userId);
+      toast.success(`${userRole} deleted`);
       loadAllData();
-      
     } catch (err) {
-      console.error('Error deleting user:', err);
-      toast.error('Failed to delete user');
+      toast.error('Failed to delete');
     }
   };
 
   const getStatusBadge = (status) => {
     const colors = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      assigned: 'bg-blue-100 text-blue-800',
-      collected: 'bg-purple-100 text-purple-800',
-      verified: 'bg-green-100 text-green-800'
+      pending: 'bg-orange-500 text-white',
+      assigned: 'bg-blue-500 text-white',
+      collected: 'bg-purple-500 text-white',
+      verified: 'bg-green-600 text-white'
     };
-    return `px-2 py-1 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100'}`;
+    return `px-1.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500 text-white'}`;
   };
 
   const getStatusIcon = (status) => {
@@ -319,334 +258,257 @@ const Admin = () => {
     r.profiles?.full_name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentReports = filteredReports.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredReports.length / itemsPerPage);
+
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-96">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-          <p className="mt-4 text-gray-500">Loading admin dashboard...</p>
-        </div>
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 px-2 sm:px-0 pb-20">
       {/* Header */}
-      <div className="flex justify-between items-center flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-          <p className="text-gray-500">Manage reports, workers, residents, and system settings</p>
-        </div>
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setShowBroadcastModal(true)}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-          >
-            <i className="fas fa-broadcast-tower mr-2"></i>Broadcast
-          </button>
-          <button 
-            onClick={loadAllData} 
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-          >
-            <i className="fas fa-sync-alt mr-2"></i>Refresh
-          </button>
+      <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-4 text-white">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div>
+            <h1 className="text-lg sm:text-xl font-bold">Admin Dashboard</h1>
+            <p className="text-green-100 text-xs">Manage reports, workers, residents</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setShowBroadcastModal(true)} className="px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs">
+              <i className="fas fa-broadcast-tower mr-1"></i>Broadcast
+            </button>
+            <button onClick={loadAllData} className="px-3 py-1 bg-white text-green-700 rounded-lg hover:bg-gray-100 text-xs">
+              <i className="fas fa-sync-alt mr-1"></i>Refresh
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
-        <div className="bg-white p-3 rounded-lg shadow text-center">
-          <i className="fas fa-flag text-blue-500 text-xl mb-1"></i>
-          <p className="text-xl font-bold">{stats.total}</p>
-          <p className="text-xs text-gray-500">Total Reports</p>
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+        <div className="bg-white p-2 rounded-lg shadow text-center">
+          <i className="fas fa-flag text-blue-500 text-sm"></i>
+          <p className="text-base font-bold">{stats.total}</p>
+          <p className="text-xs text-gray-500">Reports</p>
         </div>
-        <div className="bg-yellow-50 p-3 rounded-lg text-center">
-          <i className="fas fa-clock text-yellow-600 text-xl mb-1"></i>
-          <p className="text-xl font-bold text-yellow-600">{stats.pending}</p>
-          <p className="text-xs text-yellow-600">Pending</p>
+        <div className="bg-orange-50 p-2 rounded-lg text-center">
+          <i className="fas fa-clock text-orange-600 text-sm"></i>
+          <p className="text-base font-bold text-orange-600">{stats.pending}</p>
+          <p className="text-xs text-orange-600">Pending</p>
         </div>
-        <div className="bg-blue-50 p-3 rounded-lg text-center">
-          <i className="fas fa-user-check text-blue-600 text-xl mb-1"></i>
-          <p className="text-xl font-bold text-blue-600">{stats.assigned}</p>
+        <div className="bg-blue-50 p-2 rounded-lg text-center">
+          <i className="fas fa-user-check text-blue-600 text-sm"></i>
+          <p className="text-base font-bold text-blue-600">{stats.assigned}</p>
           <p className="text-xs text-blue-600">Assigned</p>
         </div>
-        <div className="bg-purple-50 p-3 rounded-lg text-center">
-          <i className="fas fa-truck text-purple-600 text-xl mb-1"></i>
-          <p className="text-xl font-bold text-purple-600">{stats.collected}</p>
+        <div className="bg-purple-50 p-2 rounded-lg text-center">
+          <i className="fas fa-truck text-purple-600 text-sm"></i>
+          <p className="text-base font-bold text-purple-600">{stats.collected}</p>
           <p className="text-xs text-purple-600">Collected</p>
         </div>
-        <div className="bg-green-50 p-3 rounded-lg text-center">
-          <i className="fas fa-check-circle text-green-600 text-xl mb-1"></i>
-          <p className="text-xl font-bold text-green-600">{stats.verified}</p>
+        <div className="bg-green-50 p-2 rounded-lg text-center">
+          <i className="fas fa-check-circle text-green-600 text-sm"></i>
+          <p className="text-base font-bold text-green-600">{stats.verified}</p>
           <p className="text-xs text-green-600">Verified</p>
         </div>
-        <div className="bg-indigo-50 p-3 rounded-lg text-center">
-          <i className="fas fa-users text-indigo-600 text-xl mb-1"></i>
-          <p className="text-xl font-bold text-indigo-600">{stats.totalUsers}</p>
-          <p className="text-xs text-indigo-600">Total Users</p>
+        <div className="bg-indigo-50 p-2 rounded-lg text-center">
+          <i className="fas fa-users text-indigo-600 text-sm"></i>
+          <p className="text-base font-bold text-indigo-600">{stats.totalUsers}</p>
+          <p className="text-xs text-indigo-600">Users</p>
         </div>
-        <div className="bg-emerald-50 p-3 rounded-lg text-center">
-          <i className="fas fa-calendar-alt text-emerald-600 text-xl mb-1"></i>
-          <p className="text-xl font-bold text-emerald-600">{stats.totalReportsThisMonth}</p>
-          <p className="text-xs text-emerald-600">This Month</p>
+        <div className="bg-emerald-50 p-2 rounded-lg text-center">
+          <i className="fas fa-calendar-alt text-emerald-600 text-sm"></i>
+          <p className="text-base font-bold text-emerald-600">{stats.totalReportsThisMonth}</p>
+          <p className="text-xs text-emerald-600">Month</p>
         </div>
       </div>
 
       {/* Search */}
       <div className="relative">
-        <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+        <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
         <input
           type="text"
-          placeholder="Search reports by address, ID, or reporter name..."
+          placeholder="Search reports..."
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600"
+          onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+          className="w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm"
         />
       </div>
 
-      {/* Tabs */}
-      <div className="border-b flex gap-2 overflow-x-auto">
-        <button 
-          onClick={() => setActiveTab('reports')} 
-          className={`px-4 py-2 font-medium whitespace-nowrap ${activeTab === 'reports' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'}`}
-        >
-          <i className="fas fa-flag mr-2"></i>Reports ({reports.length})
-        </button>
-        <button 
-          onClick={() => setActiveTab('workers')} 
-          className={`px-4 py-2 font-medium whitespace-nowrap ${activeTab === 'workers' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'}`}
-        >
-          <i className="fas fa-truck mr-2"></i>Workers ({workers.length})
-        </button>
-        <button 
-          onClick={() => setActiveTab('residents')} 
-          className={`px-4 py-2 font-medium whitespace-nowrap ${activeTab === 'residents' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'}`}
-        >
-          <i className="fas fa-users mr-2"></i>Residents ({residents.length})
-        </button>
-        <button 
-          onClick={() => setActiveTab('notifications')} 
-          className={`px-4 py-2 font-medium whitespace-nowrap ${activeTab === 'notifications' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'}`}
-        >
-          <i className="fas fa-bell mr-2"></i>Notifications ({notifications.length})
-        </button>
-        <button 
-          onClick={() => setActiveTab('analytics')} 
-          className={`px-4 py-2 font-medium whitespace-nowrap ${activeTab === 'analytics' ? 'text-green-600 border-b-2 border-green-600' : 'text-gray-500'}`}
-        >
-          <i className="fas fa-chart-line mr-2"></i>Analytics
-        </button>
+      {/* Tabs - Horizontal Scrollable on Mobile */}
+      <div className="border-b overflow-x-auto whitespace-nowrap pb-1 -mx-2 px-2">
+        <div className="inline-flex gap-1">
+          <button onClick={() => { setActiveTab('reports'); setCurrentPage(1); }} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'reports' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
+            <i className="fas fa-flag mr-1"></i>Reports ({reports.length})
+          </button>
+          <button onClick={() => setActiveTab('workers')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'workers' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
+            <i className="fas fa-truck mr-1"></i>Workers ({workers.length})
+          </button>
+          <button onClick={() => setActiveTab('residents')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'residents' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
+            <i className="fas fa-users mr-1"></i>Residents ({residents.length})
+          </button>
+          <button onClick={() => setActiveTab('notifications')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'notifications' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
+            <i className="fas fa-bell mr-1"></i>Notif ({notifications.length})
+          </button>
+          <button onClick={() => setActiveTab('analytics')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'analytics' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
+            <i className="fas fa-chart-line mr-1"></i>Analytics
+          </button>
+        </div>
       </div>
 
       {/* Reports Tab */}
       {activeTab === 'reports' && (
-        <div className="space-y-3">
-          {filteredReports.length === 0 ? (
-            <div className="bg-white rounded-lg border p-12 text-center text-gray-500">
-              <i className="fas fa-inbox text-4xl mb-3"></i>
-              <p>No reports found</p>
+        <div className="space-y-2">
+          {currentReports.length === 0 ? (
+            <div className="bg-white rounded-lg border p-6 text-center text-gray-500">
+              <i className="fas fa-inbox text-3xl mb-2"></i>
+              <p className="text-sm">No reports found</p>
             </div>
           ) : (
-            filteredReports.map(report => (
-              <div key={report.id} className="bg-white rounded-lg border p-4 hover:shadow-md transition">
-                <div className="flex justify-between items-start flex-wrap gap-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="text-xs text-gray-500 font-mono">#{report.id.slice(0, 8)}</span>
-                      <span className={getStatusBadge(report.status)}>
-                        <i className={`fas ${getStatusIcon(report.status)} mr-1`}></i>
-                        {report.status}
-                      </span>
-                      {report.is_emergency && (
-                        <span className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full animate-pulse">
-                          <i className="fas fa-exclamation-triangle mr-1"></i>EMERGENCY
-                        </span>
-                      )}
+            currentReports.map(report => (
+              <div key={report.id} className="bg-white rounded-lg border p-2">
+                <div className="flex flex-wrap justify-between items-center gap-1">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <span className="text-xs text-gray-500 font-mono">#{report.id.slice(0, 6)}</span>
+                      <span className={getStatusBadge(report.status)}>{report.status}</span>
+                      {report.is_emergency && <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">!</span>}
                     </div>
-                    <p className="font-semibold">{report.address}</p>
-                    <p className="text-sm text-gray-600 mt-1">
-                      <i className="fas fa-trash mr-1"></i>{report.waste_type}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      <i className="fas fa-user mr-1"></i>Reported by: {report.profiles?.full_name || 'Unknown'}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-2">
-                      <i className="fas fa-calendar mr-1"></i>{new Date(report.created_at).toLocaleString()}
-                    </p>
-                    {report.assigned_worker_id && (
-                      <p className="text-xs text-blue-600 mt-1">
-                        <i className="fas fa-user-check mr-1"></i>Assigned to: {workers.find(w => w.id === report.assigned_worker_id)?.full_name || 'Worker'}
-                      </p>
-                    )}
+                    <p className="font-medium text-sm truncate">{report.address}</p>
+                    <p className="text-xs text-gray-500 capitalize">{report.waste_type}</p>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
+                  <div className="flex gap-1 flex-shrink-0">
                     {report.status === 'pending' && (
-                      <button
-                        onClick={() => {
-                          setSelectedReport(report);
-                          setShowAssignModal(true);
-                        }}
-                        className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
-                      >
-                        <i className="fas fa-user-plus mr-1"></i>Assign
-                      </button>
+                      <button onClick={() => { setSelectedReport(report); setShowAssignModal(true); }} className="px-1.5 py-0.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">Assign</button>
                     )}
                     {report.status === 'assigned' && (
-                      <button
-                        onClick={() => updateReportStatus(report.id, 'collected')}
-                        className="px-3 py-1.5 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
-                      >
-                        <i className="fas fa-truck mr-1"></i>Mark Collected
-                      </button>
+                      <button onClick={() => updateReportStatus(report.id, 'collected')} className="px-1.5 py-0.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700">Collect</button>
                     )}
                     {report.status === 'collected' && (
-                      <button
-                        onClick={() => updateReportStatus(report.id, 'verified')}
-                        className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
-                      >
-                        <i className="fas fa-check-double mr-1"></i>Verify
-                      </button>
+                      <button onClick={() => updateReportStatus(report.id, 'verified')} className="px-1.5 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-700">Verify</button>
                     )}
-                    <button
-                      onClick={() => window.open(`/report/${report.id}`, '_blank')}
-                      className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
-                    >
-                      <i className="fas fa-eye mr-1"></i>View
-                    </button>
-                    <button
-                      onClick={() => deleteReport(report.id)}
-                      className="px-3 py-1.5 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
-                    >
-                      <i className="fas fa-trash mr-1"></i>Delete
-                    </button>
+                    <button onClick={() => deleteReport(report.id)} className="px-1.5 py-0.5 border border-red-300 text-red-600 rounded text-xs hover:bg-red-50">X</button>
                   </div>
                 </div>
               </div>
             ))
+          )}
+          
+          {/* Pagination */}
+          {filteredReports.length > itemsPerPage && (
+            <div className="flex justify-center items-center gap-1 pt-2">
+              <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-2 py-0.5 text-xs bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50">Prev</button>
+              <span className="text-xs text-gray-500">{currentPage}/{totalPages}</span>
+              <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} className="px-2 py-0.5 text-xs bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50">Next</button>
+            </div>
           )}
         </div>
       )}
 
       {/* Workers Tab */}
       {activeTab === 'workers' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workers.length === 0 ? (
-            <div className="col-span-3 bg-white rounded-lg border p-12 text-center text-gray-500">
-              <i className="fas fa-users text-4xl mb-3"></i>
-              <p>No workers registered</p>
-            </div>
-          ) : (
-            workers.map(worker => (
-              <div key={worker.id} className="bg-white rounded-lg border p-4 hover:shadow-md transition">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                    {worker.full_name?.[0] || 'W'}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-semibold">{worker.full_name || 'Unnamed'}</h3>
-                    <p className="text-xs text-gray-500">{worker.email}</p>
-                  </div>
-                  <button
-                    onClick={() => toggleWorkerAvailability(worker.id, worker.available)}
-                    className={`px-2 py-1 rounded text-xs ${worker.available ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}
-                  >
-                    {worker.available ? 'Deactivate' : 'Activate'}
-                  </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {workers.map(worker => (
+            <div key={worker.id} className="bg-white rounded-lg border p-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                  {worker.full_name?.[0] || 'W'}
                 </div>
-                <div className="space-y-1 text-sm">
-                  <p className="flex items-center gap-2"><i className="fas fa-phone w-4 text-gray-400"></i>{worker.phone || 'No phone'}</p>
-                  <p className="flex items-center gap-2"><i className="fas fa-map-marker-alt w-4 text-gray-400"></i>{worker.zone || 'No zone'}</p>
-                  <p className="flex items-center gap-2"><i className="fas fa-id-card w-4 text-gray-400"></i>{worker.worker_id || 'No ID'}</p>
-                  <p className="flex items-center gap-2"><i className="fas fa-truck w-4 text-gray-400"></i>{worker.vehicle_type || 'No vehicle'}</p>
-                  <p className="flex items-center gap-2"><i className="fas fa-star w-4 text-yellow-500"></i>{worker.rating || 0}⭐ ({worker.rating_count || 0} reviews)</p>
-                  <p className="flex items-center gap-2"><i className="fas fa-briefcase w-4 text-gray-400"></i>{worker.completed_jobs || 0} jobs completed</p>
-                  <p className={`text-xs mt-2 ${worker.available ? 'text-green-600' : 'text-gray-400'}`}>
-                    <i className={`fas ${worker.available ? 'fa-circle' : 'fa-circle'} text-xs mr-1`}></i>
-                    {worker.available ? 'Available' : 'Offline'}
-                  </p>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-sm truncate">{worker.full_name || 'Unnamed'}</h3>
+                  <p className="text-xs text-gray-500 truncate">{worker.email}</p>
                 </div>
-                <div className="mt-3 pt-3 border-t flex gap-2">
-                  <button className="flex-1 text-xs text-red-600 hover:bg-red-50 py-1 rounded" onClick={() => deleteUser(worker.id, 'worker')}>
-                    <i className="fas fa-trash mr-1"></i>Delete
+                <div className="flex gap-1">
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${worker.available ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {worker.available ? 'Online' : 'Offline'}
+                  </span>
+                  <button onClick={() => toggleWorkerAvailability(worker.id, worker.available)} className={`text-xs px-1.5 py-0.5 rounded-full ${worker.available ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                    {worker.available ? 'Off' : 'On'}
                   </button>
                 </div>
               </div>
-            ))
-          )}
+              <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-1 text-xs">
+                <p><i className="fas fa-phone w-3 text-gray-400"></i> {worker.phone || 'No phone'}</p>
+                <p><i className="fas fa-map-marker-alt w-3 text-gray-400"></i> {worker.zone || 'No zone'}</p>
+                <p><i className="fas fa-id-card w-3 text-gray-400"></i> {worker.worker_id || 'No ID'}</p>
+                <p><i className="fas fa-truck w-3 text-gray-400"></i> {worker.vehicle_type || 'No vehicle'}</p>
+                <p><i className="fas fa-star w-3 text-yellow-500"></i> {worker.rating || 0}⭐ ({worker.rating_count || 0})</p>
+                <p><i className="fas fa-briefcase w-3 text-gray-400"></i> {worker.completed_jobs || 0} jobs</p>
+              </div>
+              <div className="mt-2 pt-2 border-t">
+                <button onClick={() => deleteUser(worker.id, 'worker')} className="w-full text-xs text-red-600 hover:bg-red-50 py-1 rounded">Delete Worker</button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
       {/* Residents Tab */}
       {activeTab === 'residents' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {residents.length === 0 ? (
-            <div className="col-span-3 bg-white rounded-lg border p-12 text-center text-gray-500">
-              <i className="fas fa-users text-4xl mb-3"></i>
-              <p>No residents registered</p>
-            </div>
-          ) : (
-            residents.map(resident => {
-              const userReports = reports.filter(r => r.user_id === resident.id);
-              return (
-                <div key={resident.id} className="bg-white rounded-lg border p-4 hover:shadow-md transition">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                      {resident.full_name?.[0] || 'R'}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold">{resident.full_name || 'Unnamed'}</h3>
-                      <p className="text-xs text-gray-500">{resident.email}</p>
-                    </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {residents.map(resident => {
+            const userReports = reports.filter(r => r.user_id === resident.id);
+            return (
+              <div key={resident.id} className="bg-white rounded-lg border p-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                    {resident.full_name?.[0] || 'R'}
                   </div>
-                  <div className="space-y-1 text-sm">
-                    <p className="flex items-center gap-2"><i className="fas fa-phone w-4 text-gray-400"></i>{resident.phone || 'No phone'}</p>
-                    <p className="flex items-center gap-2"><i className="fas fa-map-marker-alt w-4 text-gray-400"></i>{resident.zone || 'No zone'}</p>
-                    <p className="flex items-center gap-2"><i className="fas fa-flag w-4 text-gray-400"></i>{userReports.length} reports</p>
-                    <p className="flex items-center gap-2"><i className="fas fa-check-circle w-4 text-green-500"></i>{userReports.filter(r => r.status === 'verified').length} resolved</p>
-                    <p className="text-xs text-gray-400 mt-2">
-                      <i className="fas fa-calendar mr-1"></i>Joined: {new Date(resident.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="mt-3 pt-3 border-t">
-                    <button className="w-full text-xs text-red-600 hover:bg-red-50 py-1 rounded" onClick={() => deleteUser(resident.id, 'resident')}>
-                      <i className="fas fa-trash mr-1"></i>Delete Resident
-                    </button>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-sm truncate">{resident.full_name || 'Unnamed'}</h3>
+                    <p className="text-xs text-gray-500 truncate">{resident.email}</p>
                   </div>
                 </div>
-              );
-            })
-          )}
+                <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-1 text-xs">
+                  <p><i className="fas fa-phone w-3 text-gray-400"></i> {resident.phone || 'No phone'}</p>
+                  <p><i className="fas fa-map-marker-alt w-3 text-gray-400"></i> {resident.zone || 'No zone'}</p>
+                  <p><i className="fas fa-flag w-3 text-gray-400"></i> {userReports.length} reports</p>
+                  <p><i className="fas fa-check-circle w-3 text-green-500"></i> {userReports.filter(r => r.status === 'verified').length} resolved</p>
+                  <p><i className="fas fa-calendar w-3 text-gray-400"></i> Joined: {new Date(resident.created_at).toLocaleDateString()}</p>
+                </div>
+                <div className="mt-2 pt-2 border-t">
+                  <button onClick={() => deleteUser(resident.id, 'resident')} className="w-full text-xs text-red-600 hover:bg-red-50 py-1 rounded">Delete Resident</button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Notifications Tab */}
       {activeTab === 'notifications' && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {notifications.length === 0 ? (
-            <div className="bg-white rounded-lg border p-12 text-center text-gray-500">
-              <i className="fas fa-bell-slash text-4xl mb-3"></i>
-              <p>No notifications</p>
+            <div className="bg-white rounded-lg border p-6 text-center text-gray-500">
+              <i className="fas fa-bell-slash text-3xl mb-2"></i>
+              <p className="text-sm">No notifications</p>
             </div>
           ) : (
-            notifications.map(notif => (
-              <div key={notif.id} className="bg-white rounded-lg border p-4">
-                <div className="flex justify-between items-start">
+            notifications.slice(0, 20).map(notif => (
+              <div key={notif.id} className="bg-white rounded-lg border p-3">
+                <div className="flex items-start gap-2">
+                  <i className={`fas text-sm mt-0.5 ${
+                    notif.type === 'success' ? 'fa-check-circle text-green-500' :
+                    notif.type === 'error' ? 'fa-times-circle text-red-500' :
+                    notif.type === 'warning' ? 'fa-exclamation-triangle text-yellow-500' :
+                    'fa-info-circle text-blue-500'
+                  }`}></i>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <i className={`fas ${
-                        notif.type === 'success' ? 'fa-check-circle text-green-500' :
-                        notif.type === 'error' ? 'fa-times-circle text-red-500' :
-                        notif.type === 'warning' ? 'fa-exclamation-triangle text-yellow-500' :
-                        'fa-info-circle text-blue-500'
-                      }`}></i>
-                      <p className="font-semibold">{notif.title}</p>
-                      <span className={`text-xs px-2 py-0.5 rounded ${notif.read ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-600'}`}>
-                        {notif.read ? 'Read' : 'Unread'}
+                    <div className="flex flex-wrap items-center gap-1">
+                      <p className="font-semibold text-sm">{notif.title}</p>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${notif.read ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-600'}`}>
+                        {notif.read ? 'Read' : 'New'}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600">{notif.message}</p>
-                    <p className="text-xs text-gray-400 mt-2">{new Date(notif.created_at).toLocaleString()}</p>
+                    <p className="text-xs text-gray-600 mt-1">{notif.message}</p>
+                    <p className="text-xs text-gray-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
                   </div>
                 </div>
               </div>
@@ -657,49 +519,23 @@ const Admin = () => {
 
       {/* Analytics Tab */}
       {activeTab === 'analytics' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Reports by Status */}
-            <div className="bg-white p-4 rounded-lg shadow">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <i className="fas fa-chart-pie text-green-600"></i>
-                Reports by Status
-              </h3>
-              <div className="space-y-3">
-                <div><div className="flex justify-between text-sm"><span>Pending</span><span className="font-bold text-yellow-600">{stats.pending}</span></div><div className="w-full bg-gray-200 rounded-full h-2 mt-1"><div className="bg-yellow-500 h-2 rounded-full" style={{ width: `${(stats.pending / stats.total) * 100 || 0}%` }}></div></div></div>
-                <div><div className="flex justify-between text-sm"><span>Assigned</span><span className="font-bold text-blue-600">{stats.assigned}</span></div><div className="w-full bg-gray-200 rounded-full h-2 mt-1"><div className="bg-blue-500 h-2 rounded-full" style={{ width: `${(stats.assigned / stats.total) * 100 || 0}%` }}></div></div></div>
-                <div><div className="flex justify-between text-sm"><span>Collected</span><span className="font-bold text-purple-600">{stats.collected}</span></div><div className="w-full bg-gray-200 rounded-full h-2 mt-1"><div className="bg-purple-500 h-2 rounded-full" style={{ width: `${(stats.collected / stats.total) * 100 || 0}%` }}></div></div></div>
-                <div><div className="flex justify-between text-sm"><span>Verified</span><span className="font-bold text-green-600">{stats.verified}</span></div><div className="w-full bg-gray-200 rounded-full h-2 mt-1"><div className="bg-green-500 h-2 rounded-full" style={{ width: `${(stats.verified / stats.total) * 100 || 0}%` }}></div></div></div>
-              </div>
-            </div>
-
-            {/* Quick Stats */}
-            <div className="bg-white p-4 rounded-lg shadow">
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <i className="fas fa-chart-line text-green-600"></i>
-                Key Metrics
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-3 bg-blue-50 rounded"><p className="text-2xl font-bold text-blue-600">{workers.filter(w => w.available).length}</p><p className="text-xs text-gray-600">Active Workers</p></div>
-                <div className="text-center p-3 bg-green-50 rounded"><p className="text-2xl font-bold text-green-600">{stats.verified}</p><p className="text-xs text-gray-600">Resolved Reports</p></div>
-                <div className="text-center p-3 bg-purple-50 rounded"><p className="text-2xl font-bold text-purple-600">{reports.filter(r => r.rating > 0).length}</p><p className="text-xs text-gray-600">Rated Reports</p></div>
-                <div className="text-center p-3 bg-yellow-50 rounded"><p className="text-2xl font-bold text-yellow-600">{stats.totalReportsThisMonth}</p><p className="text-xs text-gray-600">This Month</p></div>
-              </div>
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="font-semibold text-sm mb-3">Reports by Status</h3>
+            <div className="space-y-2">
+              <div><div className="flex justify-between text-xs"><span>Pending</span><span className="font-bold text-orange-600">{stats.pending}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-orange-500 h-1.5 rounded-full" style={{ width: `${(stats.pending / stats.total) * 100 || 0}%` }}></div></div></div>
+              <div><div className="flex justify-between text-xs"><span>Assigned</span><span className="font-bold text-blue-600">{stats.assigned}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${(stats.assigned / stats.total) * 100 || 0}%` }}></div></div></div>
+              <div><div className="flex justify-between text-xs"><span>Collected</span><span className="font-bold text-purple-600">{stats.collected}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${(stats.collected / stats.total) * 100 || 0}%` }}></div></div></div>
+              <div><div className="flex justify-between text-xs"><span>Verified</span><span className="font-bold text-green-600">{stats.verified}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${(stats.verified / stats.total) * 100 || 0}%` }}></div></div></div>
             </div>
           </div>
-
-          {/* Resolution Rate */}
           <div className="bg-white p-4 rounded-lg shadow">
-            <h3 className="font-semibold mb-3">Resolution Rate</h3>
-            <div className="text-center">
-              <div className="relative inline-flex items-center justify-center">
-                <svg className="w-32 h-32">
-                  <circle className="text-gray-200" strokeWidth="8" stroke="currentColor" fill="transparent" r="58" cx="64" cy="64"/>
-                  <circle className="text-green-600" strokeWidth="8" strokeDasharray={`${(stats.verified / stats.total) * 365 || 0} 365`} strokeLinecap="round" stroke="currentColor" fill="transparent" r="58" cx="64" cy="64"/>
-                </svg>
-                <span className="absolute text-2xl font-bold text-green-600">{Math.round((stats.verified / stats.total) * 100) || 0}%</span>
-              </div>
-              <p className="text-sm text-gray-500 mt-2">Reports Resolved</p>
+            <h3 className="font-semibold text-sm mb-3">Key Metrics</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="text-center p-2 bg-blue-50 rounded"><p className="text-lg font-bold text-blue-600">{workers.filter(w => w.available).length}</p><p className="text-xs text-gray-600">Active Workers</p></div>
+              <div className="text-center p-2 bg-green-50 rounded"><p className="text-lg font-bold text-green-600">{stats.verified}</p><p className="text-xs text-gray-600">Resolved</p></div>
+              <div className="text-center p-2 bg-purple-50 rounded"><p className="text-lg font-bold text-purple-600">{reports.filter(r => r.rating > 0).length}</p><p className="text-xs text-gray-600">Rated</p></div>
+              <div className="text-center p-2 bg-yellow-50 rounded"><p className="text-lg font-bold text-yellow-600">{stats.totalReportsThisMonth}</p><p className="text-xs text-gray-600">This Month</p></div>
             </div>
           </div>
         </div>
@@ -708,30 +544,24 @@ const Admin = () => {
       {/* Assign Modal */}
       {showAssignModal && selectedReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Assign Worker</h2>
-              <button onClick={() => setShowAssignModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+          <div className="bg-white rounded-lg max-w-md w-full p-3">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-sm font-bold">Assign Worker</h2>
+              <button onClick={() => setShowAssignModal(false)} className="text-gray-400 text-lg">&times;</button>
             </div>
-            <p className="mb-4 text-gray-600">Assign to: <strong className="text-gray-900">{selectedReport.address}</strong></p>
-            {workers.filter(w => w.available).length === 0 ? (
-              <p className="text-center text-gray-500 py-4">No available workers</p>
-            ) : (
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {workers.filter(w => w.available).map(worker => (
-                  <button
-                    key={worker.id}
-                    onClick={() => assignWorker(selectedReport.id, worker.id)}
-                    disabled={assigning}
-                    className="w-full p-3 border rounded-lg text-left hover:bg-gray-50 transition disabled:opacity-50"
-                  >
-                    <p className="font-medium">{worker.full_name || 'Unnamed'}</p>
-                    <p className="text-xs text-gray-500">Zone: {worker.zone || 'Not assigned'} | Phone: {worker.phone || 'N/A'}</p>
-                    <p className="text-xs text-gray-400">Vehicle: {worker.vehicle_type || 'N/A'}</p>
+            <p className="mb-2 text-xs">Assign to: <strong>{selectedReport.address}</strong></p>
+            <div className="space-y-1 max-h-80 overflow-y-auto">
+              {workers.filter(w => w.available).length === 0 ? (
+                <p className="text-center text-gray-500 py-2 text-xs">No available workers</p>
+              ) : (
+                workers.filter(w => w.available).map(worker => (
+                  <button key={worker.id} onClick={() => assignWorker(selectedReport.id, worker.id)} disabled={assigning} className="w-full p-2 border rounded-lg text-left hover:bg-gray-50 text-xs">
+                    <p className="font-medium text-xs">{worker.full_name || 'Unnamed'}</p>
+                    <p className="text-xs text-gray-500">Zone: {worker.zone} | Phone: {worker.phone || 'N/A'}</p>
                   </button>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -739,58 +569,23 @@ const Admin = () => {
       {/* Broadcast Modal */}
       {showBroadcastModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Send Broadcast Notification</h2>
-              <button onClick={() => setShowBroadcastModal(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+          <div className="bg-white rounded-lg max-w-md w-full p-3">
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-sm font-bold">Send Broadcast</h2>
+              <button onClick={() => setShowBroadcastModal(false)} className="text-gray-400 text-lg">&times;</button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Title</label>
-                <input
-                  type="text"
-                  value={broadcastTitle}
-                  onChange={(e) => setBroadcastTitle(e.target.value)}
-                  placeholder="e.g., System Update"
-                  className="w-full px-3 py-2 border rounded-lg"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Message</label>
-                <textarea
-                  value={broadcastMessage}
-                  onChange={(e) => setBroadcastMessage(e.target.value)}
-                  placeholder="Enter your message here..."
-                  rows="3"
-                  className="w-full px-3 py-2 border rounded-lg resize-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Notification Type</label>
-                <select
-                  value={broadcastType}
-                  onChange={(e) => setBroadcastType(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg"
-                >
-                  <option value="info">Information</option>
-                  <option value="success">Success</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                </select>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => setShowBroadcastModal(false)}
-                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={sendBroadcastNotification}
-                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-                >
-                  Send to All Users
-                </button>
+            <div className="space-y-2">
+              <input type="text" placeholder="Title" value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} className="w-full px-2 py-1 border rounded-lg text-sm" />
+              <textarea placeholder="Message" value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} rows="2" className="w-full px-2 py-1 border rounded-lg resize-none text-sm"></textarea>
+              <select value={broadcastType} onChange={(e) => setBroadcastType(e.target.value)} className="w-full px-2 py-1 border rounded-lg text-sm">
+                <option value="info">Information</option>
+                <option value="success">Success</option>
+                <option value="warning">Warning</option>
+                <option value="error">Error</option>
+              </select>
+              <div className="flex gap-2">
+                <button onClick={() => setShowBroadcastModal(false)} className="flex-1 px-2 py-1 border rounded-lg text-sm">Cancel</button>
+                <button onClick={sendBroadcastNotification} className="flex-1 px-2 py-1 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">Send</button>
               </div>
             </div>
           </div>

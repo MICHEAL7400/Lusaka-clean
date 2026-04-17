@@ -1,34 +1,39 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 const Report = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useSelector((state) => state.auth);
   const [loading, setLoading] = useState(false);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [photoFile, setPhotoFile] = useState(null);
+  
+  // Check if emergency from URL param
+  const isEmergencyParam = new URLSearchParams(location.search).get('emergency') === 'true';
+  
   const [formData, setFormData] = useState({
     address: '',
     waste_type: 'household',
     description: '',
     latitude: null,
     longitude: null,
-    is_emergency: false
+    is_emergency: isEmergencyParam
   });
 
   const wasteTypes = [
-    { value: 'household', label: '🏠 Household Waste', icon: 'fa-trash-alt', color: 'bg-green-100' },
-    { value: 'construction', label: '🏗️ Construction Debris', icon: 'fa-hard-hat', color: 'bg-orange-100' },
-    { value: 'overflowing', label: '🗑️ Overflowing Bin', icon: 'fa-trash', color: 'bg-red-100' },
-    { value: 'illegal', label: '🚫 Illegal Dumping', icon: 'fa-ban', color: 'bg-purple-100' },
-    { value: 'hazardous', label: '⚠️ Hazardous Waste', icon: 'fa-skull-crossbones', color: 'bg-red-200' },
-    { value: 'recycling', label: '♻️ Recycling', icon: 'fa-recycle', color: 'bg-blue-100' },
-    { value: 'other', label: '📦 Other', icon: 'fa-box', color: 'bg-gray-100' }
+    { value: 'household', label: 'Household Waste' },
+    { value: 'construction', label: 'Construction Debris' },
+    { value: 'overflowing', label: 'Overflowing Bin' },
+    { value: 'illegal', label: 'Illegal Dumping' },
+    { value: 'hazardous', label: 'Hazardous Waste' },
+    { value: 'recycling', label: 'Recycling' },
+    { value: 'other', label: 'Other' }
   ];
 
   const zones = ['Matero', 'Chilene', 'Kabwata', 'CBD', 'Kanyama', 'Chawama', 'Mandevu'];
@@ -50,7 +55,6 @@ const Report = () => {
         setFormData(prev => ({ ...prev, latitude, longitude }));
         setSelectedLocation([latitude, longitude]);
         
-        // Reverse geocoding to get address
         try {
           const response = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
@@ -124,7 +128,6 @@ const Report = () => {
 
     setLoading(true);
 
-    // Determine zone from address
     let zone = 'Matero';
     const addressLower = formData.address.toLowerCase();
     for (const z of zones) {
@@ -137,7 +140,6 @@ const Report = () => {
     try {
       const photoUrl = await uploadPhoto();
       
-      // Insert report and get the ID back
       const { data: insertedReport, error: insertError } = await supabase
         .from('waste_reports')
         .insert([{
@@ -159,7 +161,6 @@ const Report = () => {
       
       const reportId = insertedReport?.[0]?.id;
       
-      // Create notification for admins
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
@@ -168,14 +169,14 @@ const Report = () => {
       for (const admin of admins || []) {
         await supabase.from('notifications').insert([{
           user_id: admin.id,
-          title: formData.is_emergency ? '🚨 EMERGENCY REPORT' : 'New Waste Report',
+          title: formData.is_emergency ? 'EMERGENCY REPORT' : 'New Waste Report',
           message: `${formData.is_emergency ? 'EMERGENCY - ' : ''}New report at ${formData.address}`,
           type: formData.is_emergency ? 'error' : 'info',
           report_id: reportId
         }]);
       }
       
-      toast.success(formData.is_emergency ? '🚨 Emergency report submitted! Help is on the way.' : '✅ Report submitted successfully!');
+      toast.success(formData.is_emergency ? 'Emergency report submitted! Help is on the way.' : 'Report submitted successfully!');
       navigate('/dashboard');
       
     } catch (err) {
@@ -187,16 +188,16 @@ const Report = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-t-2xl p-6 text-white">
-        <h1 className="text-2xl font-bold">Report Waste Issue</h1>
-        <p className="text-green-100 mt-1">Help keep Lusaka clean and green</p>
+    <div className="max-w-2xl mx-auto px-4 sm:px-0">
+      <div className={`rounded-t-2xl p-4 sm:p-6 text-white ${formData.is_emergency ? 'bg-red-600' : 'bg-gradient-to-r from-green-600 to-green-700'}`}>
+        <h1 className="text-xl sm:text-2xl font-bold">Report Waste Issue</h1>
+        <p className="text-green-100 text-sm mt-1">Help keep Lusaka clean and green</p>
       </div>
       
-      <form onSubmit={handleSubmit} className="bg-white rounded-b-2xl shadow-lg p-6 space-y-6">
+      <form onSubmit={handleSubmit} className="bg-white rounded-b-2xl shadow-lg p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* Location Section */}
-        <div className="border rounded-lg p-4 bg-blue-50">
-          <h2 className="font-semibold mb-3 flex items-center gap-2">
+        <div className="border rounded-lg p-3 sm:p-4 bg-blue-50">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm sm:text-base">
             <i className="fas fa-map-marker-alt text-blue-600"></i>
             Location Information
           </h2>
@@ -207,7 +208,7 @@ const Report = () => {
               value={formData.address}
               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
               placeholder="Enter street address, landmark, or area"
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 text-sm"
               required
             />
             
@@ -215,7 +216,7 @@ const Report = () => {
               type="button"
               onClick={getCurrentLocation}
               disabled={gettingLocation}
-              className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
             >
               <i className={`fas ${gettingLocation ? 'fa-spinner fa-spin' : 'fa-location-dot'}`}></i>
               {gettingLocation ? 'Getting location...' : 'Use My Current Location'}
@@ -224,23 +225,23 @@ const Report = () => {
             {selectedLocation && (
               <div className="text-xs text-green-600 bg-green-100 p-2 rounded">
                 <i className="fas fa-check-circle mr-1"></i>
-                Location captured: {selectedLocation[0].toFixed(6)}, {selectedLocation[1].toFixed(6)}
+                Location captured
               </div>
             )}
           </div>
         </div>
 
         {/* Waste Type Section */}
-        <div className="border rounded-lg p-4">
-          <h2 className="font-semibold mb-3 flex items-center gap-2">
+        <div className="border rounded-lg p-3 sm:p-4">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm sm:text-base">
             <i className="fas fa-trash-alt text-green-600"></i>
             Waste Type
           </h2>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {wasteTypes.map(type => (
               <label
                 key={type.value}
-                className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition border-2 ${
+                className={`flex items-center gap-3 p-2 sm:p-3 rounded-lg cursor-pointer transition border ${
                   formData.waste_type === type.value 
                     ? 'border-green-600 bg-green-50' 
                     : 'border-gray-200 hover:border-green-300'
@@ -254,9 +255,6 @@ const Report = () => {
                   onChange={(e) => setFormData({ ...formData, waste_type: e.target.value })}
                   className="sr-only"
                 />
-                <div className={`w-10 h-10 rounded-full ${type.color} flex items-center justify-center`}>
-                  <i className={`fas ${type.icon} text-lg`}></i>
-                </div>
                 <span className="text-sm font-medium">{type.label}</span>
               </label>
             ))}
@@ -264,8 +262,8 @@ const Report = () => {
         </div>
 
         {/* Description Section */}
-        <div className="border rounded-lg p-4">
-          <h2 className="font-semibold mb-3 flex items-center gap-2">
+        <div className="border rounded-lg p-3 sm:p-4">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm sm:text-base">
             <i className="fas fa-edit text-green-600"></i>
             Description
           </h2>
@@ -273,38 +271,37 @@ const Report = () => {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             rows="4"
-            placeholder="Describe the waste issue in detail (e.g., how long it's been there, approximate quantity, any hazards)..."
-            className="w-full px-3 py-2 border rounded-lg resize-none focus:ring-2 focus:ring-green-500"
+            placeholder="Describe the waste issue in detail..."
+            className="w-full px-3 py-2 border rounded-lg resize-none focus:ring-2 focus:ring-green-500 text-sm"
           />
           <p className="text-xs text-gray-500 mt-1">
-            <i className="fas fa-info-circle mr-1"></i>
             Detailed descriptions help workers respond appropriately
           </p>
         </div>
 
         {/* Photo Upload Section */}
-        <div className="border rounded-lg p-4">
-          <h2 className="font-semibold mb-3 flex items-center gap-2">
+        <div className="border rounded-lg p-3 sm:p-4">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm sm:text-base">
             <i className="fas fa-camera text-green-600"></i>
             Photo Evidence
           </h2>
           
           {photoPreview ? (
-            <div className="relative">
-              <img src={photoPreview} alt="Preview" className="w-full max-h-48 object-cover rounded-lg" />
+            <div className="relative inline-block">
+              <img src={photoPreview} alt="Preview" className="max-h-32 rounded-lg" />
               <button
                 type="button"
                 onClick={() => { setPhotoPreview(null); setPhotoFile(null); }}
-                className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 w-8 h-8 flex items-center justify-center hover:bg-red-700"
+                className="absolute top-0 right-0 bg-red-600 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:bg-red-700 text-xs"
               >
-                <i className="fas fa-times"></i>
+                ✕
               </button>
             </div>
           ) : (
             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition">
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <i className="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
-                <p className="text-sm text-gray-500">Click to upload a photo</p>
+                <i className="fas fa-cloud-upload-alt text-2xl sm:text-3xl text-gray-400 mb-2"></i>
+                <p className="text-xs sm:text-sm text-gray-500">Click to upload a photo</p>
                 <p className="text-xs text-gray-400">PNG, JPG up to 5MB</p>
               </div>
               <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
@@ -313,20 +310,20 @@ const Report = () => {
         </div>
 
         {/* Emergency Section */}
-        <div className="border rounded-lg p-4 border-red-300 bg-red-50">
+        <div className={`border rounded-lg p-3 sm:p-4 ${formData.is_emergency ? 'border-red-400 bg-red-50' : 'border-red-200 bg-red-50'}`}>
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
               checked={formData.is_emergency}
               onChange={(e) => setFormData({ ...formData, is_emergency: e.target.checked })}
-              className="mt-1 w-5 h-5 accent-red-600"
+              className="mt-1 w-4 h-4 sm:w-5 sm:h-5 accent-red-600"
             />
             <div>
-              <p className="font-semibold text-red-700 flex items-center gap-2">
+              <p className="font-semibold text-red-700 flex items-center gap-2 text-sm sm:text-base">
                 <i className="fas fa-exclamation-triangle"></i>
                 Mark as Emergency
               </p>
-              <p className="text-sm text-red-600">
+              <p className="text-xs sm:text-sm text-red-600">
                 Check this if the waste issue poses immediate health or environmental risks
               </p>
             </div>
@@ -334,18 +331,18 @@ const Report = () => {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-3 pt-4">
+        <div className="flex flex-col sm:flex-row gap-3 pt-4">
           <button
             type="button"
             onClick={() => navigate('/dashboard')}
-            className="flex-1 px-4 py-3 border rounded-lg hover:bg-gray-50 transition font-medium"
+            className="px-4 py-3 border rounded-lg hover:bg-gray-50 transition font-medium text-sm order-2 sm:order-1"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={loading}
-            className={`flex-1 px-4 py-3 rounded-lg text-white font-medium transition ${
+            className={`px-4 py-3 rounded-lg text-white font-medium transition text-sm order-1 sm:order-2 ${
               formData.is_emergency 
                 ? 'bg-red-600 hover:bg-red-700 animate-pulse' 
                 : 'bg-green-600 hover:bg-green-700'

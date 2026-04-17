@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { Provider } from 'react-redux';
-import { store } from './store';
 
 // Pages
 import Home from './pages/Home';
@@ -14,21 +12,17 @@ import Worker from './pages/Worker';
 import Report from './pages/Report';
 import ReportDetails from './pages/ReportDetails';
 import MyReports from './pages/MyReports';
-import EditReport from './pages/EditReport';
 import Profile from './pages/Profile';
 import Map from './pages/Map';
 import About from './pages/About';
-import Notifications from './pages/Notifications';
-import Settings from './pages/Settings';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 
 // Components
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
-import { AuthProvider } from './contexts/AuthContext';
 
-function AppContent() {
+function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -40,11 +34,6 @@ function AppContent() {
     setLoading(false);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    setUser(null);
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -54,77 +43,54 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
-      <Navbar user={user} onLogout={handleLogout} />
-      <main className="flex-1 p-4 md:p-6">
-        <div className="max-w-7xl mx-auto">
-          <Routes>
-            {/* Public Routes - Everyone can access */}
-            <Route path="/" element={<Home />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/map" element={<Map />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            
-            {/* Resident Routes - Only residents can access */}
-            {user && user.role === 'resident' && (
-              <>
+    <Router>
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <Navbar />
+        <main className="flex-1 p-4 md:p-6">
+          <div className="max-w-7xl mx-auto">
+            <Routes>
+              {/* Public Routes - Available to everyone */}
+              <Route path="/" element={<Home />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/map" element={<Map />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              
+              {/* Protected Routes - Only when user is logged in */}
+              {user && user.role === 'resident' && (
                 <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/report" element={<Report />} />
-                <Route path="/report/:id" element={<ReportDetails />} />
-                <Route path="/my-reports" element={<MyReports />} />
-                <Route path="/edit-report/:id" element={<EditReport />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/settings" element={<Settings />} />
-              </>
-            )}
-            
-            {/* Worker Routes - Only workers can access */}
-            {user && user.role === 'worker' && (
-              <>
+              )}
+              {user && user.role === 'worker' && (
                 <Route path="/dashboard" element={<Worker user={user} />} />
-                <Route path="/report/:id" element={<ReportDetails />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/settings" element={<Settings />} />
-              </>
-            )}
-            
-            {/* Admin Routes - Only admin can access */}
-            {user && user.role === 'admin' && (
-              <>
+              )}
+              {user && user.role === 'admin' && (
                 <Route path="/dashboard" element={<Admin />} />
+              )}
+              {user && user.role === 'admin' && (
                 <Route path="/admin" element={<Admin />} />
-                <Route path="/report/:id" element={<ReportDetails />} />
-                <Route path="/profile" element={<Profile />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/settings" element={<Settings />} />
-              </>
-            )}
-            
-            {/* Catch all - Redirect based on login status */}
-            <Route path="*" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
-          </Routes>
-        </div>
-      </main>
-      <Footer />
-      <Toaster position="top-right" />
-    </div>
-  );
-}
-
-function App() {
-  return (
-    <Provider store={store}>
-      <AuthProvider>
-        <Router>
-          <AppContent />
-        </Router>
-      </AuthProvider>
-    </Provider>
+              )}
+              
+              {/* Common protected routes for all logged-in users */}
+              {user && (
+                <>
+                  <Route path="/report" element={<Report />} />
+                  <Route path="/report/:id" element={<ReportDetails />} />
+                  <Route path="/my-reports" element={<MyReports />} />
+                  <Route path="/profile" element={<Profile />} />
+                </>
+              )}
+              
+              {/* Redirect to dashboard if logged in, otherwise to login */}
+              <Route path="*" element={user ? <Navigate to="/dashboard" /> : <Navigate to="/login" />} />
+            </Routes>
+          </div>
+        </main>
+        <Footer />
+        <Toaster position="top-right" />
+      </div>
+    </Router>
   );
 }
 
