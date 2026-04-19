@@ -171,6 +171,14 @@ const Worker = ({ user }) => {
       return;
     }
     
+    // Check if worker's vehicle is suitable for the waste type
+    const unsuitableWaste = ['construction', 'hazardous'];
+    if (unsuitableWaste.includes(job.waste_type) && (!user.vehicle_type || user.vehicle_type === 'Bicycle')) {
+      if (!window.confirm('This job may require a larger vehicle. Are you sure you want to accept?')) {
+        return;
+      }
+    }
+    
     await supabase
       .from('waste_reports')
       .update({ 
@@ -228,6 +236,25 @@ const Worker = ({ user }) => {
       verified: 'bg-green-100 text-green-800'
     };
     return `px-2 py-1 rounded-full text-xs font-medium ${colors[status]}`;
+  };
+
+  const getVehicleRecommendation = (wasteType) => {
+    switch(wasteType) {
+      case 'household':
+        return { vehicle: 'Bicycle or Motorbike', color: 'text-green-600', suitable: true };
+      case 'recycling':
+        return { vehicle: 'Bicycle or Motorbike', color: 'text-green-600', suitable: true };
+      case 'overflowing':
+        return { vehicle: 'Motorbike or Pickup', color: 'text-blue-600', suitable: true };
+      case 'construction':
+        return { vehicle: 'Pickup or Truck', color: 'text-orange-600', suitable: user?.vehicle_type === 'Pickup' || user?.vehicle_type === 'Truck' };
+      case 'illegal':
+        return { vehicle: 'Pickup or Truck', color: 'text-orange-600', suitable: user?.vehicle_type === 'Pickup' || user?.vehicle_type === 'Truck' };
+      case 'hazardous':
+        return { vehicle: 'Truck (Special handling)', color: 'text-red-600', suitable: user?.vehicle_type === 'Truck' };
+      default:
+        return { vehicle: 'Motorbike or Pickup', color: 'text-blue-600', suitable: true };
+    }
   };
 
   const getPaginatedData = (data) => {
@@ -335,6 +362,28 @@ const Worker = ({ user }) => {
         </div>
       </div>
 
+      {/* Worker Vehicle Info Card */}
+      <div className="bg-white p-3 rounded-lg shadow">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+            <i className="fas fa-truck text-purple-600"></i>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium">Your Vehicle: {user?.vehicle_type || 'Not specified'}</p>
+            <p className="text-xs text-gray-500">
+              {user?.vehicle_type === 'Truck' ? '✓ Can handle all waste types' :
+               user?.vehicle_type === 'Pickup' ? '✓ Can handle most waste types' :
+               user?.vehicle_type === 'Motorbike' ? '⚠️ Best for small to medium loads' :
+               user?.vehicle_type === 'Bicycle' ? '⚠️ Best for small loads only' :
+               'Update your profile to add vehicle type for better job recommendations'}
+            </p>
+          </div>
+          <Link to="/profile">
+            <button className="text-xs text-blue-600 hover:underline">Update</button>
+          </Link>
+        </div>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <div className="bg-white p-2 sm:p-4 rounded-lg shadow text-center">
@@ -382,21 +431,88 @@ const Worker = ({ user }) => {
               <p className="text-sm">No available jobs in {user?.zone}</p>
             </div>
           ) : (
-            getPaginatedData(availableJobs).map(job => (
-              <div key={job.id} className="bg-white rounded-lg border p-3 sm:p-4">
-                <div className="flex justify-between items-start flex-wrap gap-2">
-                  <div className="flex-1">
-                    {job.is_emergency && (
-                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full inline-block mb-1">Emergency</span>
-                    )}
-                    <p className="font-medium text-sm sm:text-base">{job.address}</p>
-                    <p className="text-xs sm:text-sm text-gray-500 mt-1 capitalize">{job.waste_type}</p>
-                    <p className="text-xs text-gray-400 mt-1">{new Date(job.created_at).toLocaleString()}</p>
+            getPaginatedData(availableJobs).map(job => {
+              const recommendation = getVehicleRecommendation(job.waste_type);
+              return (
+                <div key={job.id} className="bg-white rounded-lg border p-3 sm:p-4 hover:shadow-md transition">
+                  <div className="flex flex-col gap-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        {job.is_emergency && (
+                          <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full inline-block mb-1">🚨 Emergency</span>
+                        )}
+                        <p className="font-medium text-sm sm:text-base">{job.address}</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded capitalize">
+                            <i className="fas fa-trash mr-1"></i>{job.waste_type}
+                          </span>
+                        </div>
+                        {job.description && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{job.description}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          <i className="fas fa-calendar text-gray-400 text-xs"></i>
+                          <p className="text-xs text-gray-400">{new Date(job.created_at).toLocaleString()}</p>
+                        </div>
+                        {job.photo_url && (
+                          <img src={job.photo_url} alt="Evidence" className="h-12 w-12 object-cover rounded mt-1" />
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <Link to={`/report/${job.id}`}>
+                          <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap hover:bg-blue-700">
+                            View Details
+                          </button>
+                        </Link>
+                        <button onClick={() => acceptJob(job)} disabled={!isAvailable} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm whitespace-nowrap hover:bg-green-700 disabled:opacity-50">
+                          Accept
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Vehicle Recommendation Card */}
+                    <div className={`mt-2 p-3 rounded-lg ${recommendation.suitable ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                      <div className="flex items-start gap-2">
+                        <i className={`fas fa-truck mt-0.5 ${recommendation.suitable ? 'text-green-600' : 'text-yellow-600'}`}></i>
+                        <div className="flex-1">
+                          <p className="text-xs font-medium">Vehicle Recommendation</p>
+                          <p className={`text-sm font-semibold ${recommendation.color}`}>
+                            {recommendation.vehicle}
+                          </p>
+                          {user.vehicle_type && (
+                            <p className={`text-xs mt-1 ${recommendation.suitable ? 'text-green-600' : 'text-orange-600'}`}>
+                              <i className={`fas ${recommendation.suitable ? 'fa-check-circle' : 'fa-exclamation-triangle'} mr-1`}></i>
+                              Your vehicle: {user.vehicle_type} - {recommendation.suitable ? 'Suitable for this job' : 'May not be ideal for this waste type'}
+                            </p>
+                          )}
+                          {!user.vehicle_type && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              <i className="fas fa-info-circle mr-1"></i>
+                              Update your profile to add vehicle type for better recommendations
+                            </p>
+                          )}
+                          {job.waste_type === 'hazardous' && (
+                            <p className="text-xs text-red-600 mt-1">
+                              <i className="fas fa-exclamation-triangle mr-1"></i>
+                              Special handling required for hazardous waste
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <button onClick={() => acceptJob(job)} disabled={!isAvailable} className="px-3 sm:px-4 py-1.5 sm:py-2 bg-green-600 text-white rounded-lg text-sm whitespace-nowrap">Accept</button>
                 </div>
-              </div>
-            ))
+              );
+            })
+          )}
+          
+          {/* Pagination for Available Jobs */}
+          {availableJobs.length > itemsPerPage && (
+            <div className="flex justify-center items-center gap-1 sm:gap-2 flex-wrap pt-2">
+              <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Prev</button>
+              <span className="text-xs sm:text-sm text-gray-500">Page {currentPage} of {totalPages(availableJobs)}</span>
+              <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages(availableJobs)))} disabled={currentPage === totalPages(availableJobs)} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Next</button>
+            </div>
           )}
         </div>
       )}
@@ -414,21 +530,46 @@ const Worker = ({ user }) => {
               <div key={task.id} className="bg-white rounded-lg border p-3 sm:p-4">
                 <div className="flex flex-col sm:flex-row justify-between gap-3">
                   <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Assigned</span>
+                      {task.is_emergency && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">Emergency</span>}
+                    </div>
                     <p className="font-medium text-sm sm:text-base">{task.address}</p>
-                    <p className="text-xs sm:text-sm text-gray-500 mt-1 capitalize">{task.waste_type}</p>
+                    <div className="flex gap-2 mt-1">
+                      <span className="text-xs bg-gray-100 px-2 py-0.5 rounded capitalize">
+                        <i className="fas fa-trash mr-1"></i>{task.waste_type}
+                      </span>
+                      {task.description && (
+                        <span className="text-xs text-gray-500">{task.description.substring(0, 50)}</span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-400 mt-1">Assigned: {new Date(task.assigned_at).toLocaleString()}</p>
                     <textarea
                       value={workerNote}
                       onChange={(e) => setWorkerNote(e.target.value)}
-                      placeholder="Add notes..."
+                      placeholder="Add notes about this job (access code, special instructions)..."
                       className="mt-2 w-full px-2 py-1 border rounded text-xs sm:text-sm"
                       rows="2"
                     />
                   </div>
-                  <button onClick={() => completeJob(task.id, workerNote)} className="px-3 sm:px-4 py-1.5 sm:py-2 bg-purple-600 text-white rounded-lg text-sm whitespace-nowrap">Complete</button>
+                  <div className="flex gap-2">
+                    <Link to={`/report/${task.id}`}>
+                      <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm whitespace-nowrap">View Details</button>
+                    </Link>
+                    <button onClick={() => completeJob(task.id, workerNote)} className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm whitespace-nowrap">Complete</button>
+                  </div>
                 </div>
               </div>
             ))
+          )}
+          
+          {/* Pagination for My Tasks */}
+          {myTasks.length > itemsPerPage && (
+            <div className="flex justify-center items-center gap-1 sm:gap-2 flex-wrap pt-2">
+              <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Prev</button>
+              <span className="text-xs sm:text-sm text-gray-500">Page {currentPage} of {totalPages(myTasks)}</span>
+              <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages(myTasks)))} disabled={currentPage === totalPages(myTasks)} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Next</button>
+            </div>
           )}
         </div>
       )}
@@ -444,27 +585,35 @@ const Worker = ({ user }) => {
           ) : (
             getPaginatedData(completedJobs).map(task => (
               <div key={task.id} className="bg-white rounded-lg border p-3 sm:p-4 opacity-75">
-                <p className="font-medium text-sm sm:text-base">{task.address}</p>
-                <p className="text-xs sm:text-sm text-gray-500">{task.waste_type}</p>
-                <p className="text-xs text-gray-400 mt-1">Completed: {new Date(task.collected_at).toLocaleString()}</p>
-                {task.rating > 0 && <p className="text-xs text-yellow-600 mt-1">Rating: {task.rating} stars</p>}
-                <Link to={`/report/${task.id}`}><button className="mt-2 text-green-600 text-xs hover:underline">View Details</button></Link>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Completed</span>
+                    </div>
+                    <p className="font-medium text-sm sm:text-base">{task.address}</p>
+                    <p className="text-xs text-gray-500">{task.waste_type}</p>
+                    <p className="text-xs text-gray-400 mt-1">Completed: {new Date(task.collected_at).toLocaleString()}</p>
+                    {task.rating > 0 && <p className="text-xs text-yellow-600 mt-1">Rating: {task.rating}⭐</p>}
+                    {task.worker_note && <p className="text-xs text-gray-500 mt-1 italic">Note: {task.worker_note}</p>}
+                  </div>
+                  <Link to={`/report/${task.id}`}>
+                    <button className="px-3 py-1 border rounded-lg text-sm hover:bg-gray-50">View</button>
+                  </Link>
+                </div>
               </div>
             ))
           )}
+          
+          {/* Pagination for Completed Jobs */}
+          {completedJobs.length > itemsPerPage && (
+            <div className="flex justify-center items-center gap-1 sm:gap-2 flex-wrap pt-2">
+              <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Prev</button>
+              <span className="text-xs sm:text-sm text-gray-500">Page {currentPage} of {totalPages(completedJobs)}</span>
+              <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages(completedJobs)))} disabled={currentPage === totalPages(completedJobs)} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Next</button>
+            </div>
+          )}
         </div>
       )}
-
-      {/* Pagination */}
-      {(activeTab === 'available' && availableJobs.length > itemsPerPage) ||
-       (activeTab === 'assigned' && myTasks.length > itemsPerPage) ||
-       (activeTab === 'completed' && completedJobs.length > itemsPerPage) ? (
-        <div className="flex justify-center items-center gap-1 sm:gap-2 flex-wrap pt-2">
-          <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Prev</button>
-          <span className="text-xs sm:text-sm text-gray-500">Page {currentPage} of {totalPages(activeTab === 'available' ? availableJobs : activeTab === 'assigned' ? myTasks : completedJobs)}</span>
-          <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages(activeTab === 'available' ? availableJobs : activeTab === 'assigned' ? myTasks : completedJobs)))} disabled={currentPage === totalPages(activeTab === 'available' ? availableJobs : activeTab === 'assigned' ? myTasks : completedJobs)} className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50">Next</button>
-        </div>
-      ) : null}
 
       {/* Refresh Button */}
       <div className="text-center">

@@ -8,6 +8,7 @@ const ReportDetails = () => {
   const navigate = useNavigate();
   const [report, setReport] = useState(null);
   const [worker, setWorker] = useState(null);
+  const [resident, setResident] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [rating, setRating] = useState(0);
@@ -17,6 +18,10 @@ const ReportDetails = () => {
   const [updating, setUpdating] = useState(false);
   const [showCallConfirm, setShowCallConfirm] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [estimatedVolume, setEstimatedVolume] = useState('medium');
+  const [recommendedVehicle, setRecommendedVehicle] = useState('');
+  const [accessNotes, setAccessNotes] = useState('');
+  const [assessmentSaved, setAssessmentSaved] = useState(false);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -25,13 +30,57 @@ const ReportDetails = () => {
     }
     if (id) {
       loadReport();
+      loadSavedAssessment();
     }
   }, [id]);
+
+  const loadSavedAssessment = () => {
+    const saved = localStorage.getItem(`assessment_${id}`);
+    if (saved) {
+      const assessment = JSON.parse(saved);
+      setEstimatedVolume(assessment.volume || 'medium');
+      setRecommendedVehicle(assessment.vehicle || '');
+      setAccessNotes(assessment.notes || '');
+      setAssessmentSaved(true);
+    }
+  };
+
+  const saveAssessment = () => {
+    const assessment = {
+      volume: estimatedVolume,
+      vehicle: recommendedVehicle,
+      notes: accessNotes,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem(`assessment_${id}`, JSON.stringify(assessment));
+    setAssessmentSaved(true);
+    toast.success('Assessment saved successfully');
+  };
+
+  const updateRecommendation = (volume) => {
+    let recommendation = '';
+    switch(volume) {
+      case 'small':
+        recommendation = 'Bicycle or Motorbike';
+        break;
+      case 'medium':
+        recommendation = 'Motorbike or Pickup Truck';
+        break;
+      case 'large':
+        recommendation = 'Pickup Truck or Large Truck';
+        break;
+      case 'huge':
+        recommendation = 'Large Truck (may need assistance)';
+        break;
+      default:
+        recommendation = 'Select volume for recommendation';
+    }
+    return recommendation;
+  };
 
   const loadReport = async () => {
     try {
       setLoading(true);
-      console.log('Loading report with ID:', id);
       
       const { data, error } = await supabase
         .from('waste_reports')
@@ -46,11 +95,11 @@ const ReportDetails = () => {
         return;
       }
       
-      console.log('Report loaded:', data);
       setReport(data);
       setWorkerNote(data.worker_note || '');
       setImageError(false);
       
+      // Load worker details if assigned
       if (data.assigned_worker_id) {
         const { data: workerData, error: workerError } = await supabase
           .from('profiles')
@@ -60,6 +109,19 @@ const ReportDetails = () => {
         
         if (!workerError && workerData) {
           setWorker(workerData);
+        }
+      }
+      
+      // Load resident details (the person who reported)
+      if (data.user_id) {
+        const { data: residentData, error: residentError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user_id)
+          .single();
+        
+        if (!residentError && residentData) {
+          setResident(residentData);
         }
       }
       
@@ -211,11 +273,11 @@ const ReportDetails = () => {
     }
   };
 
-  const handleCallWorker = () => {
-    if (worker?.phone) {
-      window.location.href = `tel:${worker.phone}`;
+  const handleCall = (phoneNumber, personName) => {
+    if (phoneNumber) {
+      window.location.href = `tel:${phoneNumber}`;
     } else {
-      toast.error('Worker phone number not available');
+      toast.error(`${personName} phone number not available`);
     }
     setShowCallConfirm(false);
   };
@@ -318,24 +380,24 @@ const ReportDetails = () => {
         </div>
       </div>
 
-      {/* Worker Details */}
-      {report.status !== 'pending' && worker && (
+      {/* WORKER DETAILS - Visible to RESIDENTS when worker is assigned */}
+      {report.status !== 'pending' && worker && user?.role === 'resident' && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 sm:p-5">
           <h2 className="font-semibold mb-3 flex items-center gap-2 text-blue-800 text-sm sm:text-base">
             <i className="fas fa-user-circle"></i>
             Assigned Worker Details
           </h2>
           
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg">
+              <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
                 {worker.full_name?.[0] || 'W'}
               </div>
               <div>
-                <p className="font-semibold text-sm sm:text-base">{worker.full_name || 'Worker'}</p>
+                <p className="font-semibold text-base">{worker.full_name || 'Worker'}</p>
                 <div className="flex items-center gap-1 mt-1">
                   {[1, 2, 3, 4, 5].map(star => (
-                    <i key={star} className={`fas fa-star text-xs ${
+                    <i key={star} className={`fas fa-star text-sm ${
                       star <= (worker.rating || 0) ? 'text-yellow-500' : 'text-gray-300'
                     }`}></i>
                   ))}
@@ -346,42 +408,198 @@ const ReportDetails = () => {
               </div>
             </div>
             
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <div>
-                <p className="text-gray-500">Worker ID</p>
+                <p className="text-gray-500 text-xs">Worker ID</p>
                 <p className="font-medium">{worker.worker_id || 'N/A'}</p>
               </div>
               <div>
-                <p className="text-gray-500">Vehicle Type</p>
-                <p className="font-medium capitalize">{worker.vehicle_type || 'N/A'}</p>
+                <p className="text-gray-500 text-xs">Vehicle Type</p>
+                <p className="font-medium capitalize flex items-center gap-1">
+                  {worker.vehicle_type === 'Bicycle' && '🚲'}
+                  {worker.vehicle_type === 'Motorbike' && '🏍️'}
+                  {worker.vehicle_type === 'Pickup' && '🚛'}
+                  {worker.vehicle_type === 'Truck' && '🚚'}
+                  {' '}{worker.vehicle_type || 'N/A'}
+                </p>
               </div>
               <div>
-                <p className="text-gray-500">Phone Number</p>
+                <p className="text-gray-500 text-xs">Phone Number</p>
                 <p className="font-medium">{worker.phone || 'N/A'}</p>
               </div>
               <div>
-                <p className="text-gray-500">Experience</p>
+                <p className="text-gray-500 text-xs">Experience</p>
                 <p className="font-medium">{worker.experience || 'N/A'}</p>
               </div>
               <div>
-                <p className="text-gray-500">Jobs Completed</p>
+                <p className="text-gray-500 text-xs">Jobs Completed</p>
                 <p className="font-medium">{worker.completed_jobs || 0}</p>
               </div>
               <div>
-                <p className="text-gray-500">Assigned On</p>
+                <p className="text-gray-500 text-xs">Assigned On</p>
                 <p className="font-medium">{new Date(report.assigned_at).toLocaleDateString()}</p>
               </div>
             </div>
             
             {worker.phone && (
               <button
-                onClick={() => setShowCallConfirm(true)}
-                className="px-3 sm:px-4 py-1.5 sm:py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm"
+                onClick={() => {
+                  setShowCallConfirm(true);
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm self-start"
               >
                 <i className="fas fa-phone"></i>
                 Call Worker
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* RESIDENT DETAILS - Visible to WORKERS when assigned */}
+      {report.status !== 'pending' && resident && user?.role === 'worker' && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 sm:p-5">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-green-800 text-sm sm:text-base">
+            <i className="fas fa-home"></i>
+            Resident Details
+          </h2>
+          
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                {resident.full_name?.[0] || 'R'}
+              </div>
+              <div>
+                <p className="font-semibold text-base">{resident.full_name || 'Resident'}</p>
+                <p className="text-xs text-gray-500">Resident</p>
+              </div>
+            </div>
+            
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              <div>
+                <p className="text-gray-500 text-xs">Phone Number</p>
+                <p className="font-medium">{resident.phone || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">Zone</p>
+                <p className="font-medium">{resident.zone || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">Email</p>
+                <p className="font-medium text-sm truncate">{resident.email || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">Member Since</p>
+                <p className="font-medium">{new Date(resident.created_at).toLocaleDateString()}</p>
+              </div>
+            </div>
+            
+            {resident.phone && (
+              <button
+                onClick={() => {
+                  setShowCallConfirm(true);
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm self-start"
+              >
+                <i className="fas fa-phone"></i>
+                Call Resident
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Waste Assessment for Workers - Only visible to workers */}
+      {user?.role === 'worker' && report.status === 'assigned' && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 sm:p-5">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-purple-800 text-sm sm:text-base">
+            <i className="fas fa-clipboard-list"></i>
+            Waste Assessment & Vehicle Recommendation
+          </h2>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-white rounded-lg p-3">
+                <p className="text-xs text-gray-500">Waste Type</p>
+                <p className="font-semibold text-sm capitalize">{report.waste_type}</p>
+              </div>
+              <div className="bg-white rounded-lg p-3">
+                <p className="text-xs text-gray-500">Estimated Volume</p>
+                <select 
+                  value={estimatedVolume}
+                  onChange={(e) => {
+                    setEstimatedVolume(e.target.value);
+                    setRecommendedVehicle(updateRecommendation(e.target.value));
+                  }}
+                  className="w-full mt-1 px-2 py-1 border rounded text-sm"
+                >
+                  <option value="small">Small - One bag / Small bin</option>
+                  <option value="medium">Medium - Wheelie bin / Few bags</option>
+                  <option value="large">Large - Truck load / Many bags</option>
+                  <option value="huge">Huge - Multiple truck loads</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-2">Recommended Vehicle</p>
+              <div className="flex flex-wrap gap-2">
+                {['Bicycle', 'Motorbike', 'Pickup', 'Truck'].map(vehicle => (
+                  <label key={vehicle} className="flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input 
+                      type="radio" 
+                      name="vehicle" 
+                      value={vehicle}
+                      checked={recommendedVehicle === vehicle}
+                      onChange={(e) => setRecommendedVehicle(e.target.value)}
+                      className="w-4 h-4" 
+                    />
+                    <span className="text-sm">
+                      {vehicle === 'Bicycle' && '🚲'}
+                      {vehicle === 'Motorbike' && '🏍️'}
+                      {vehicle === 'Pickup' && '🚛'}
+                      {vehicle === 'Truck' && '🚚'}
+                      {' '}{vehicle}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className={`rounded-lg p-3 border ${recommendedVehicle ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+              <p className="text-xs mb-2 flex items-center gap-1">
+                <i className="fas fa-lightbulb"></i>
+                Recommendation
+              </p>
+              <div className="text-sm">
+                {recommendedVehicle ? (
+                  <span className="text-green-700">
+                    ✅ Based on estimated volume, a <strong>{recommendedVehicle}</strong> is recommended for this job.
+                  </span>
+                ) : (
+                  <span className="text-yellow-700">Select estimated volume to see recommendation</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Access Notes (Optional)</label>
+              <textarea
+                value={accessNotes}
+                onChange={(e) => setAccessNotes(e.target.value)}
+                rows="2"
+                placeholder="Any access issues? Gate code? Floor number? Special instructions?"
+                className="w-full px-3 py-2 border rounded-lg text-sm resize-none"
+              ></textarea>
+            </div>
+
+            <button
+              onClick={saveAssessment}
+              className="w-full bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 text-sm font-medium"
+            >
+              <i className="fas fa-save mr-2"></i>
+              {assessmentSaved ? 'Update Assessment' : 'Save Assessment'}
+            </button>
           </div>
         </div>
       )}
@@ -546,9 +764,12 @@ const ReportDetails = () => {
       {showCallConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-sm w-full p-6">
-            <h3 className="text-lg font-bold mb-3">Call Worker?</h3>
+            <h3 className="text-lg font-bold mb-3">
+              {user?.role === 'resident' ? 'Call Worker?' : 'Call Resident?'}
+            </h3>
             <p className="text-gray-600 mb-4 text-sm">
-              You are about to call {worker?.full_name} at {worker?.phone}
+              You are about to call {user?.role === 'resident' ? worker?.full_name : resident?.full_name} at {' '}
+              {user?.role === 'resident' ? worker?.phone : resident?.phone}
             </p>
             <div className="flex gap-3">
               <button
@@ -558,7 +779,10 @@ const ReportDetails = () => {
                 Cancel
               </button>
               <button
-                onClick={handleCallWorker}
+                onClick={() => handleCall(
+                  user?.role === 'resident' ? worker?.phone : resident?.phone,
+                  user?.role === 'resident' ? worker?.full_name : resident?.full_name
+                )}
                 className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
               >
                 Call Now
