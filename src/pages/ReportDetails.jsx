@@ -16,6 +16,7 @@ const ReportDetails = () => {
   const [workerNote, setWorkerNote] = useState('');
   const [updating, setUpdating] = useState(false);
   const [showCallConfirm, setShowCallConfirm] = useState(false);
+  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -48,6 +49,7 @@ const ReportDetails = () => {
       console.log('Report loaded:', data);
       setReport(data);
       setWorkerNote(data.worker_note || '');
+      setImageError(false);
       
       if (data.assigned_worker_id) {
         const { data: workerData, error: workerError } = await supabase
@@ -70,7 +72,6 @@ const ReportDetails = () => {
     }
   };
 
-  // Worker marks as collected
   const markAsCollected = async () => {
     setUpdating(true);
     try {
@@ -86,7 +87,6 @@ const ReportDetails = () => {
       
       if (error) throw error;
       
-      // Notify resident
       await supabase.from('notifications').insert([{
         user_id: report.user_id,
         title: 'Waste Collected',
@@ -106,7 +106,6 @@ const ReportDetails = () => {
     }
   };
 
-  // Admin verifies and opens rating for resident
   const markAsVerified = async () => {
     setUpdating(true);
     try {
@@ -121,7 +120,6 @@ const ReportDetails = () => {
       
       if (error) throw error;
       
-      // Notify resident that they can rate
       await supabase.from('notifications').insert([{
         user_id: report.user_id,
         title: 'Report Verified',
@@ -141,7 +139,6 @@ const ReportDetails = () => {
     }
   };
 
-  // Resident rates the worker
   const submitRating = async () => {
     if (rating === 0) {
       toast.error('Please select a rating');
@@ -150,7 +147,6 @@ const ReportDetails = () => {
     
     setUpdating(true);
     try {
-      // Update the report with rating
       const { error } = await supabase
         .from('waste_reports')
         .update({ 
@@ -164,7 +160,6 @@ const ReportDetails = () => {
       
       if (error) throw error;
       
-      // Update worker's average rating
       if (worker) {
         const newRatingCount = (worker.rating_count || 0) + 1;
         const newRating = ((worker.rating || 0) * (worker.rating_count || 0) + rating) / newRatingCount;
@@ -178,7 +173,6 @@ const ReportDetails = () => {
           })
           .eq('id', worker.id);
         
-        // Notify worker about rating
         await supabase.from('notifications').insert([{
           user_id: worker.id,
           title: 'New Rating Received!',
@@ -228,12 +222,12 @@ const ReportDetails = () => {
 
   const getStatusBadge = (status) => {
     const colors = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      assigned: 'bg-blue-100 text-blue-800',
-      collected: 'bg-purple-100 text-purple-800',
-      verified: 'bg-green-100 text-green-800'
+      pending: 'bg-orange-500 text-white',
+      assigned: 'bg-blue-500 text-white',
+      collected: 'bg-purple-500 text-white',
+      verified: 'bg-green-600 text-white'
     };
-    return `px-2 py-1 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-100'}`;
+    return `px-2 py-1 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500 text-white'}`;
   };
 
   const getStatusIcon = (status) => {
@@ -280,40 +274,40 @@ const ReportDetails = () => {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 pb-20">
+    <div className="max-w-3xl mx-auto space-y-6 pb-20 px-4 sm:px-0">
       {/* Header */}
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold">Report #{report.id.slice(0, 8)}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">Report #{report.id.slice(0, 8)}</h1>
             {report.is_emergency && (
-              <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
                 <i className="fas fa-exclamation-triangle mr-1"></i>Emergency
               </span>
             )}
           </div>
-          <p className="text-gray-500 text-sm mt-1">
+          <p className="text-gray-500 text-xs sm:text-sm mt-1">
             <i className="fas fa-calendar mr-1"></i>
             Submitted on {new Date(report.created_at).toLocaleString()}
           </p>
         </div>
-        <button onClick={() => navigate(-1)} className="text-gray-500 hover:text-gray-700">
+        <button onClick={() => navigate(-1)} className="text-gray-500 hover:text-gray-700 text-sm">
           <i className="fas fa-arrow-left mr-1"></i> Back
         </button>
       </div>
 
       {/* Status Timeline */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="font-semibold mb-4">Status Timeline</h2>
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow">
+        <h2 className="font-semibold mb-4 text-sm sm:text-base">Status Timeline</h2>
         <div className="relative">
           <div className="absolute top-5 left-0 w-full h-0.5 bg-gray-200"></div>
           <div className="relative flex justify-between">
             {getProgressSteps().map((step, idx) => (
               <div key={step.name} className="text-center flex-1">
-                <div className={`relative z-10 w-10 h-10 mx-auto rounded-full flex items-center justify-center ${
+                <div className={`relative z-10 w-8 h-8 sm:w-10 sm:h-10 mx-auto rounded-full flex items-center justify-center ${
                   step.completed ? 'bg-green-600 text-white' : 'bg-gray-300 text-gray-600'
                 }`}>
-                  {step.completed ? <i className="fas fa-check"></i> : idx + 1}
+                  {step.completed ? <i className="fas fa-check text-xs sm:text-sm"></i> : <span className="text-sm">{idx + 1}</span>}
                 </div>
                 <p className={`text-xs mt-2 font-medium ${step.active ? 'text-green-600' : 'text-gray-500'}`}>
                   {step.label}
@@ -324,24 +318,24 @@ const ReportDetails = () => {
         </div>
       </div>
 
-      {/* Worker Details - Visible to everyone when worker is assigned */}
+      {/* Worker Details */}
       {report.status !== 'pending' && worker && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
-          <h2 className="font-semibold mb-3 flex items-center gap-2 text-blue-800">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 sm:p-5">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-blue-800 text-sm sm:text-base">
             <i className="fas fa-user-circle"></i>
             Assigned Worker Details
           </h2>
           
           <div className="flex flex-wrap gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg">
                 {worker.full_name?.[0] || 'W'}
               </div>
               <div>
-                <p className="font-semibold text-lg">{worker.full_name || 'Worker'}</p>
+                <p className="font-semibold text-sm sm:text-base">{worker.full_name || 'Worker'}</p>
                 <div className="flex items-center gap-1 mt-1">
                   {[1, 2, 3, 4, 5].map(star => (
-                    <i key={star} className={`fas fa-star text-sm ${
+                    <i key={star} className={`fas fa-star text-xs ${
                       star <= (worker.rating || 0) ? 'text-yellow-500' : 'text-gray-300'
                     }`}></i>
                   ))}
@@ -352,7 +346,7 @@ const ReportDetails = () => {
               </div>
             </div>
             
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
               <div>
                 <p className="text-gray-500">Worker ID</p>
                 <p className="font-medium">{worker.worker_id || 'N/A'}</p>
@@ -382,7 +376,7 @@ const ReportDetails = () => {
             {worker.phone && (
               <button
                 onClick={() => setShowCallConfirm(true)}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2"
+                className="px-3 sm:px-4 py-1.5 sm:py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-xs sm:text-sm"
               >
                 <i className="fas fa-phone"></i>
                 Call Worker
@@ -393,43 +387,32 @@ const ReportDetails = () => {
       )}
 
       {/* Report Details */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="font-semibold mb-4 flex items-center gap-2">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow">
+        <h2 className="font-semibold mb-4 flex items-center gap-2 text-sm sm:text-base">
           <i className="fas fa-info-circle text-green-600"></i>
           Report Information
         </h2>
         
         <div className="space-y-3">
           <div>
-            <p className="text-sm text-gray-500">Status</p>
+            <p className="text-xs sm:text-sm text-gray-500">Status</p>
             <span className={getStatusBadge(report.status)}>
               <i className={`fas ${getStatusIcon(report.status)} mr-1`}></i>
               {report.status.toUpperCase()}
             </span>
           </div>
           <div>
-            <p className="text-sm text-gray-500">Address</p>
-            <p className="font-medium">{report.address}</p>
+            <p className="text-xs sm:text-sm text-gray-500">Address</p>
+            <p className="font-medium text-sm sm:text-base">{report.address}</p>
           </div>
           <div>
-            <p className="text-sm text-gray-500">Waste Type</p>
-            <p className="capitalize">{report.waste_type}</p>
+            <p className="text-xs sm:text-sm text-gray-500">Waste Type</p>
+            <p className="capitalize text-sm">{report.waste_type}</p>
           </div>
           {report.description && (
             <div>
-              <p className="text-sm text-gray-500">Description</p>
-              <p className="text-gray-700">{report.description}</p>
-            </div>
-          )}
-          {report.photo_url && (
-            <div>
-              <p className="text-sm text-gray-500">Photo Evidence</p>
-              <img 
-                src={report.photo_url} 
-                alt="Evidence" 
-                className="mt-2 max-h-64 rounded-lg cursor-pointer hover:opacity-90"
-                onClick={() => window.open(report.photo_url, '_blank')}
-              />
+              <p className="text-xs sm:text-sm text-gray-500">Description</p>
+              <p className="text-gray-700 text-sm">{report.description}</p>
             </div>
           )}
           {report.latitude && report.longitude && (
@@ -438,7 +421,7 @@ const ReportDetails = () => {
                 href={`https://www.google.com/maps/search/?api=1&query=${report.latitude},${report.longitude}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 text-sm hover:underline inline-flex items-center gap-1"
+                className="text-blue-600 text-xs sm:text-sm hover:underline inline-flex items-center gap-1"
               >
                 <i className="fas fa-map-marker-alt"></i>
                 View on Google Maps
@@ -448,10 +431,48 @@ const ReportDetails = () => {
         </div>
       </div>
 
-      {/* Worker Notes Section (for workers and admins) */}
+      {/* Photo Evidence Section */}
+      {report.photo_url && (
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm sm:text-base">
+            <i className="fas fa-image text-green-600"></i>
+            Photo Evidence
+          </h2>
+          <div className="relative">
+            {!imageError ? (
+              <img 
+                src={report.photo_url} 
+                alt="Report evidence" 
+                className="w-full max-h-96 object-contain rounded-lg cursor-pointer border border-gray-200"
+                onClick={() => window.open(report.photo_url, '_blank')}
+                onError={() => {
+                  console.error('Image failed to load:', report.photo_url);
+                  setImageError(true);
+                }}
+              />
+            ) : (
+              <div className="bg-gray-100 p-8 rounded-lg text-center">
+                <i className="fas fa-image text-4xl text-gray-400 mb-2"></i>
+                <p className="text-gray-500">Image could not be loaded</p>
+                <a 
+                  href={report.photo_url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-blue-500 text-sm hover:underline mt-2 inline-block"
+                >
+                  Try opening directly
+                </a>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-2 text-center">Click image to view full size</p>
+        </div>
+      )}
+
+      {/* Worker Notes Section */}
       {(user?.role === 'worker' || user?.role === 'admin') && report.status === 'assigned' && (
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="font-semibold mb-3 flex items-center gap-2">
+        <div className="bg-white p-4 sm:p-6 rounded-lg shadow">
+          <h2 className="font-semibold mb-3 flex items-center gap-2 text-sm sm:text-base">
             <i className="fas fa-edit text-green-600"></i>
             Worker Notes
           </h2>
@@ -460,7 +481,7 @@ const ReportDetails = () => {
             onChange={(e) => setWorkerNote(e.target.value)}
             placeholder="Add notes about this job (e.g., access code, special instructions, completion notes)..."
             rows="3"
-            className="w-full px-3 py-2 border rounded-lg resize-none focus:ring-2 focus:ring-green-500"
+            className="w-full px-3 py-2 border rounded-lg resize-none focus:ring-2 focus:ring-green-500 text-sm"
           />
           <button
             onClick={updateWorkerNote}
@@ -484,7 +505,7 @@ const ReportDetails = () => {
           <button
             onClick={markAsCollected}
             disabled={updating}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm"
           >
             <i className="fas fa-truck mr-2"></i>
             Mark as Collected
@@ -495,7 +516,7 @@ const ReportDetails = () => {
           <button
             onClick={markAsVerified}
             disabled={updating}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
           >
             <i className="fas fa-check-double mr-2"></i>
             Verify Report
@@ -503,17 +524,17 @@ const ReportDetails = () => {
         )}
       </div>
 
-      {/* Rating Section - ONLY Residents can rate Workers (when report is verified and not rated yet) */}
+      {/* Rating Section */}
       {report.status === 'verified' && !report.rated && user?.role === 'resident' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center flex-wrap gap-3">
             <div>
-              <h3 className="font-semibold text-yellow-800">Rate the Worker</h3>
-              <p className="text-sm text-yellow-700">How was your experience with the waste collector?</p>
+              <h3 className="font-semibold text-yellow-800 text-sm sm:text-base">Rate the Worker</h3>
+              <p className="text-xs sm:text-sm text-yellow-700">How was your experience with the waste collector?</p>
             </div>
             <button
               onClick={() => setShowRatingModal(true)}
-              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm"
             >
               Rate Now
             </button>
@@ -526,19 +547,19 @@ const ReportDetails = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-sm w-full p-6">
             <h3 className="text-lg font-bold mb-3">Call Worker?</h3>
-            <p className="text-gray-600 mb-4">
+            <p className="text-gray-600 mb-4 text-sm">
               You are about to call {worker?.full_name} at {worker?.phone}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowCallConfirm(false)}
-                className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
+                className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCallWorker}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
               >
                 Call Now
               </button>
@@ -562,7 +583,7 @@ const ReportDetails = () => {
                 <button
                   key={star}
                   onClick={() => setRating(star)}
-                  className="text-3xl focus:outline-none transition-transform hover:scale-110"
+                  className="text-2xl sm:text-3xl focus:outline-none transition-transform hover:scale-110"
                 >
                   <i className={`fas fa-star ${star <= rating ? 'text-yellow-500' : 'text-gray-300'}`}></i>
                 </button>
@@ -573,21 +594,21 @@ const ReportDetails = () => {
               value={review}
               onChange={(e) => setReview(e.target.value)}
               placeholder="Share your experience with this worker (optional)"
-              className="w-full px-3 py-2 border rounded-lg resize-none mb-4"
+              className="w-full px-3 py-2 border rounded-lg resize-none mb-4 text-sm"
               rows="3"
             />
             
             <div className="flex gap-3">
               <button
                 onClick={() => setShowRatingModal(false)}
-                className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
+                className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"
               >
                 Cancel
               </button>
               <button
                 onClick={submitRating}
                 disabled={updating || rating === 0}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
               >
                 {updating ? 'Submitting...' : 'Submit Rating'}
               </button>
@@ -597,7 +618,7 @@ const ReportDetails = () => {
       )}
 
       {/* Timestamps */}
-      <div className="bg-gray-50 p-4 rounded-lg text-xs text-gray-500">
+      <div className="bg-gray-50 p-3 sm:p-4 rounded-lg text-xs text-gray-500">
         <p><i className="fas fa-plus-circle mr-1"></i> Created: {new Date(report.created_at).toLocaleString()}</p>
         {report.assigned_at && <p className="mt-1"><i className="fas fa-user-check mr-1"></i> Assigned: {new Date(report.assigned_at).toLocaleString()}</p>}
         {report.collected_at && <p className="mt-1"><i className="fas fa-truck mr-1"></i> Collected: {new Date(report.collected_at).toLocaleString()}</p>}
