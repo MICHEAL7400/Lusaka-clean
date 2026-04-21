@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { supabase } from '../lib/supabase';
+import toast from 'react-hot-toast';
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const { user } = useSelector((state) => state.auth);
   const [reports, setReports] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -36,7 +38,7 @@ const Dashboard = () => {
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(20);
       
       setNotifications(notifData || []);
       setUnreadCount(notifData?.filter(n => !n.read).length || 0);
@@ -48,14 +50,35 @@ const Dashboard = () => {
     }
   };
 
-  const markNotificationAsRead = async (id) => {
+  const handleNotificationClick = async (notification) => {
+    // Mark as read if not already
+    if (!notification.read) {
+      await supabase.from('notifications').update({ read: true }).eq('id', notification.id);
+      setNotifications(notifications.map(n => 
+        n.id === notification.id ? { ...n, read: true } : n
+      ));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    }
+    
+    // Close notification dropdown
+    setShowNotifications(false);
+    
+    // Navigate based on action_url or report_id
+    if (notification.action_url) {
+      window.location.href = notification.action_url;
+    } else if (notification.report_id) {
+      navigate(`/report/${notification.report_id}`);
+    }
+  };
+
+  const markNotificationAsRead = async (id, e) => {
+    e.stopPropagation(); // Prevent triggering the parent click
     await supabase.from('notifications').update({ read: true }).eq('id', id);
     setNotifications(notifications.map(n => n.id === id ? { ...n, read: true } : n));
     setUnreadCount(prev => Math.max(0, prev - 1));
   };
 
   const getStatusBadge = (status) => {
-    // Orange for pending/assigned, Green for verified
     if (status === 'pending' || status === 'assigned') {
       return 'bg-orange-500 text-white';
     }
@@ -125,6 +148,7 @@ const Dashboard = () => {
               )}
             </button>
             
+            {/* Notifications Dropdown - Clickable */}
             {showNotifications && (
               <div className="absolute right-0 mt-2 w-72 sm:w-80 bg-white rounded-lg shadow-xl border z-50">
                 <div className="p-3 border-b flex justify-between items-center">
@@ -136,10 +160,31 @@ const Dashboard = () => {
                     <div className="p-4 text-center text-gray-500 text-sm">No notifications</div>
                   ) : (
                     notifications.map(notif => (
-                      <div key={notif.id} className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${!notif.read ? 'bg-blue-50' : ''}`} onClick={() => markNotificationAsRead(notif.id)}>
-                        <p className="text-sm font-medium">{notif.title}</p>
-                        <p className="text-xs text-gray-600 mt-1">{notif.message}</p>
-                        <p className="text-xs text-gray-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                      <div 
+                        key={notif.id} 
+                        className={`p-3 border-b cursor-pointer hover:bg-gray-50 transition ${!notif.read ? 'bg-blue-50' : ''}`}
+                        onClick={() => handleNotificationClick(notif)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">{notif.title}</p>
+                            <p className="text-xs text-gray-600 mt-1">{notif.message}</p>
+                            <p className="text-xs text-gray-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                            {(notif.action_url || notif.report_id) && (
+                              <p className="text-xs text-blue-500 mt-1 flex items-center gap-1">
+                                <i className="fas fa-share-alt"></i> Click to view details
+                              </p>
+                            )}
+                          </div>
+                          {!notif.read && (
+                            <button 
+                              onClick={(e) => markNotificationAsRead(notif.id, e)}
+                              className="text-xs text-green-600 hover:text-green-700 ml-2"
+                            >
+                              Mark read
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))
                   )}
@@ -180,7 +225,7 @@ const Dashboard = () => {
         </Link>
       </div>
 
-      {/* Stats Cards - Mobile Responsive */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-4">
         <div className="bg-white p-2 sm:p-4 rounded-lg shadow text-center">
           <p className="text-gray-500 text-xs sm:text-sm">Total</p>
@@ -219,7 +264,7 @@ const Dashboard = () => {
             </div>
           ) : (
             currentReports.map(report => (
-              <div key={report.id} className="p-3 sm:p-4 hover:bg-gray-50 transition">
+              <div key={report.id} className="p-3 sm:p-4 hover:bg-gray-50 transition cursor-pointer" onClick={() => navigate(`/report/${report.id}`)}>
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -235,64 +280,35 @@ const Dashboard = () => {
                     <p className="text-xs sm:text-sm text-gray-500 capitalize mt-1">{report.waste_type}</p>
                     <p className="text-xs text-gray-400 mt-1">{new Date(report.created_at).toLocaleDateString()}</p>
                   </div>
-                  <Link to={`/report/${report.id}`}>
-                    <button className="text-green-600 text-xs sm:text-sm hover:underline whitespace-nowrap">View →</button>
-                  </Link>
+                  <button className="text-green-600 text-xs sm:text-sm hover:underline">View →</button>
                 </div>
               </div>
             ))
           )}
         </div>
         
-        {/* Pagination - Mobile Responsive */}
+        {/* Pagination */}
         {reports.length > reportsPerPage && (
           <div className="p-3 sm:p-4 border-t">
             <div className="flex justify-center items-center gap-1 sm:gap-2 flex-wrap">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                 disabled={currentPage === 1}
-                className="px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
               >
                 <i className="fas fa-chevron-left mr-1"></i> Prev
               </button>
-              <div className="flex gap-1 sm:gap-2">
-                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`w-7 h-7 sm:w-8 sm:h-8 text-xs sm:text-sm rounded-lg ${
-                        currentPage === pageNum
-                          ? 'bg-green-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
-              </div>
+              <span className="text-xs sm:text-sm text-gray-500">
+                Page {currentPage} of {totalPages}
+              </span>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                 disabled={currentPage === totalPages}
-                className="px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-2 sm:px-3 py-1 text-xs sm:text-sm bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
               >
                 Next <i className="fas fa-chevron-right ml-1"></i>
               </button>
             </div>
-            <p className="text-center text-xs text-gray-400 mt-2">
-              Page {currentPage} of {totalPages} ({reports.length} total reports)
-            </p>
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { notificationService } from '../services/notificationService';
 import NotificationCenter from './NotificationCenter';
 
@@ -28,7 +29,7 @@ const NotificationBell = () => {
 
     loadUnreadCount();
 
-    // Poll every 20 seconds instead of 10 to reduce load
+    // Poll every 20 seconds
     intervalRef.current = setInterval(async () => {
       try {
         const count = await notificationService.getUnreadCount(user.id);

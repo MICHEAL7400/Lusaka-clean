@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { notificationService } from '../services/notificationService';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 
 const NotificationCenter = ({ isOpen, onClose }) => {
   const { user } = useSelector((state) => state.auth);
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -25,6 +27,26 @@ const NotificationCenter = ({ isOpen, onClose }) => {
       console.error('Failed to load notifications:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    // Mark as read
+    if (!notification.read) {
+      await notificationService.markAsRead(notification.id);
+      setNotifications(notifications.map(n => 
+        n.id === notification.id ? { ...n, read: true } : n
+      ));
+    }
+    
+    // Close the notification center
+    onClose();
+    
+    // Navigate based on action_url or report_id
+    if (notification.action_url) {
+      window.location.href = notification.action_url;
+    } else if (notification.report_id) {
+      navigate(`/report/${notification.report_id}`);
     }
   };
 
@@ -52,18 +74,8 @@ const NotificationCenter = ({ isOpen, onClose }) => {
     ? notifications 
     : notifications.filter(n => n.type === filter);
 
-  const markAsRead = async (id) => {
-    try {
-      await notificationService.markAsRead(id);
-      setNotifications(notifications.map(n => 
-        n.id === id ? { ...n, read: true } : n
-      ));
-    } catch (error) {
-      console.error('Failed to mark as read:', error);
-    }
-  };
-
-  const deleteNotification = async (id) => {
+  const deleteNotification = async (id, e) => {
+    e.stopPropagation(); // Prevent triggering the parent click
     try {
       await notificationService.deleteNotification(id);
       setNotifications(notifications.filter(n => n.id !== id));
@@ -134,16 +146,10 @@ const NotificationCenter = ({ isOpen, onClose }) => {
                   {filteredNotifications.map(notification => (
                     <div
                       key={notification.id}
-                      className={`p-4 cursor-pointer transition ${
-                        !notification.read ? 'bg-gray-50 dark:bg-gray-700/50' : ''
+                      className={`p-4 cursor-pointer transition-all hover:shadow-md ${
+                        !notification.read ? 'bg-gray-50 dark:bg-gray-700/50 border-l-4 border-l-green-500' : ''
                       } ${getTypeStyles(notification.type)}`}
-                      onClick={() => {
-                        if (!notification.read) markAsRead(notification.id);
-                        if (notification.action_url) {
-                          window.location.href = notification.action_url;
-                          onClose();
-                        }
-                      }}
+                      onClick={() => handleNotificationClick(notification)}
                     >
                       <div className="flex gap-3">
                         <div className="flex-shrink-0">
@@ -155,13 +161,17 @@ const NotificationCenter = ({ isOpen, onClose }) => {
                           <p className="text-xs text-gray-400 mt-2">
                             {new Date(notification.created_at).toLocaleString()}
                           </p>
+                          {notification.action_url || notification.report_id ? (
+                            <p className="text-xs text-green-500 mt-1 flex items-center gap-1">
+                              <i className="fas fa-share-alt"></i>
+                              Click to view details
+                            </p>
+                          ) : null}
                         </div>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteNotification(notification.id);
-                          }}
-                          className="text-gray-400 hover:text-red-600"
+                          onClick={(e) => deleteNotification(notification.id, e)}
+                          className="text-gray-400 hover:text-red-600 transition-colors"
+                          title="Delete"
                         >
                           <i className="fas fa-trash-alt text-xs"></i>
                         </button>

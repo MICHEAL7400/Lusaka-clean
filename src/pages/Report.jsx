@@ -78,7 +78,6 @@ const Report = () => {
 
     let bestAccuracy = Infinity;
 
-    // Auto-stop after 20 seconds with whatever we have
     const timeout = setTimeout(() => {
       stopWatch();
       setGettingLocation(false);
@@ -93,21 +92,17 @@ const Report = () => {
       async (position) => {
         const { latitude, longitude, accuracy } = position.coords;
 
-        // Ignore if not better than what we already have
         if (accuracy >= bestAccuracy) return;
         bestAccuracy = accuracy;
 
-        // Update coords and pin right away
         setSelectedLocation([latitude, longitude]);
         setLocationAccuracy(accuracy);
         setFormData(prev => ({ ...prev, latitude, longitude }));
 
-        // Reverse geocode quietly in background
         getAddressFromCoords(latitude, longitude).then(address => {
           setFormData(prev => ({ ...prev, address }));
         });
 
-        // Stop once we hit good accuracy (≤ 30m is plenty)
         if (accuracy <= 30) {
           clearTimeout(timeout);
           stopWatch();
@@ -169,7 +164,7 @@ const Report = () => {
 
     try {
       const photoUrl = await uploadPhoto();
-      const { error: insertError } = await supabase.from('waste_reports').insert([{
+      const { data: insertedReport, error: insertError } = await supabase.from('waste_reports').insert([{
         user_id: user.id,
         address: formData.address,
         latitude: formData.latitude,
@@ -181,8 +176,11 @@ const Report = () => {
         zone,
         status: 'pending',
         created_at: new Date().toISOString()
-      }]);
+      }]).select();
+      
       if (insertError) throw insertError;
+      
+      const reportId = insertedReport?.[0]?.id;
 
       const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
       for (const admin of admins || []) {
@@ -190,7 +188,9 @@ const Report = () => {
           user_id: admin.id,
           title: formData.is_emergency ? 'EMERGENCY REPORT' : 'New Waste Report',
           message: `${formData.is_emergency ? 'EMERGENCY — ' : ''}New report at ${formData.address}`,
-          type: formData.is_emergency ? 'error' : 'info'
+          type: formData.is_emergency ? 'error' : 'info',
+          report_id: reportId,
+          action_url: `/report/${reportId}`
         }]);
       }
 
@@ -251,7 +251,6 @@ const Report = () => {
               </button>
             </div>
 
-            {/* Show location once found — no warnings, just coords + accuracy */}
             {selectedLocation && (
               <div className="text-xs text-green-700 bg-green-100 p-2 rounded flex items-center gap-2">
                 <i className="fas fa-check-circle text-green-600"></i>

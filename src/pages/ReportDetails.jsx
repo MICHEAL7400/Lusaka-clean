@@ -11,6 +11,7 @@ const ReportDetails = () => {
   const [resident, setResident] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showRatingModal, setShowRatingModal] = useState(false);
+  const [showReportIssue, setShowReportIssue] = useState(false);
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [user, setUser] = useState(null);
@@ -58,24 +59,13 @@ const ReportDetails = () => {
   };
 
   const updateRecommendation = (volume) => {
-    let recommendation = '';
     switch(volume) {
-      case 'small':
-        recommendation = 'Bicycle or Motorbike';
-        break;
-      case 'medium':
-        recommendation = 'Motorbike or Pickup Truck';
-        break;
-      case 'large':
-        recommendation = 'Pickup Truck or Large Truck';
-        break;
-      case 'huge':
-        recommendation = 'Large Truck (may need assistance)';
-        break;
-      default:
-        recommendation = 'Select volume for recommendation';
+      case 'small': return 'Bicycle or Motorbike';
+      case 'medium': return 'Motorbike or Pickup Truck';
+      case 'large': return 'Pickup Truck or Large Truck';
+      case 'huge': return 'Large Truck (may need assistance)';
+      default: return 'Select volume for recommendation';
     }
-    return recommendation;
   };
 
   const loadReport = async () => {
@@ -99,7 +89,6 @@ const ReportDetails = () => {
       setWorkerNote(data.worker_note || '');
       setImageError(false);
       
-      // Load worker details if assigned
       if (data.assigned_worker_id) {
         const { data: workerData, error: workerError } = await supabase
           .from('profiles')
@@ -112,7 +101,6 @@ const ReportDetails = () => {
         }
       }
       
-      // Load resident details (the person who reported)
       if (data.user_id) {
         const { data: residentData, error: residentError } = await supabase
           .from('profiles')
@@ -152,17 +140,53 @@ const ReportDetails = () => {
       await supabase.from('notifications').insert([{
         user_id: report.user_id,
         title: 'Waste Collected',
-        message: `The waste at ${report.address} has been collected. Awaiting verification.`,
+        message: `The waste at ${report.address} has been collected. Please verify.`,
         type: 'success',
-        report_id: id
+        report_id: id,
+        action_url: `/report/${id}`
       }]);
       
-      toast.success('Task marked as collected!');
+      toast.success('Task marked as collected! Resident will verify.');
       loadReport();
       
     } catch (err) {
       console.error(err);
       toast.error('Failed to update status');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const verifyByResident = async () => {
+    setUpdating(true);
+    try {
+      const { error } = await supabase
+        .from('waste_reports')
+        .update({ 
+          verified_by_resident: true,
+          resident_verified_at: new Date().toISOString(),
+          status: 'ready_for_rating',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      await supabase.from('notifications').insert([{
+        user_id: report.user_id,
+        title: 'Verification Confirmed',
+        message: 'You have confirmed the waste was collected. Please rate the worker!',
+        type: 'success',
+        report_id: id,
+        action_url: `/report/${id}`
+      }]);
+      
+      toast.success('Verification confirmed! You can now rate the worker.');
+      loadReport();
+      
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to verify');
     } finally {
       setUpdating(false);
     }
@@ -185,17 +209,65 @@ const ReportDetails = () => {
       await supabase.from('notifications').insert([{
         user_id: report.user_id,
         title: 'Report Verified',
-        message: `Your report at ${report.address} has been verified. Please rate the worker!`,
+        message: `Your report at ${report.address} has been verified.`,
         type: 'success',
-        report_id: id
+        report_id: id,
+        action_url: `/report/${id}`
       }]);
       
-      toast.success('Report verified! Resident can now rate the worker.');
+      toast.success('Report verified!');
       loadReport();
       
     } catch (err) {
       console.error(err);
       toast.error('Failed to verify report');
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const reportWorkerIssue = async (issueType) => {
+    setUpdating(true);
+    try {
+      const updates = {
+        updated_at: new Date().toISOString()
+      };
+      
+      if (issueType === 'delay') {
+        updates.delayed = true;
+        updates.delay_reported_at = new Date().toISOString();
+        updates.delay_reason = 'Worker delayed';
+      } else {
+        updates.worker_no_show = true;
+        updates.no_show_reported_at = new Date().toISOString();
+      }
+      
+      const { error } = await supabase
+        .from('waste_reports')
+        .update(updates)
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin');
+      for (const admin of admins || []) {
+        await supabase.from('notifications').insert([{
+          user_id: admin.id,
+          title: issueType === 'delay' ? '⚠️ Worker Delay Reported' : '🚨 Worker No-Show Reported',
+          message: `${issueType === 'delay' ? 'Worker delayed' : 'Worker never showed up'} for report at ${report.address}`,
+          type: 'warning',
+          report_id: id,
+          action_url: `/report/${id}`
+        }]);
+      }
+      
+      toast.success(issueType === 'delay' ? 'Delay reported to admin.' : 'No-show reported. Admin will reassign.');
+      setShowReportIssue(false);
+      loadReport();
+      
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to report issue');
     } finally {
       setUpdating(false);
     }
@@ -216,6 +288,8 @@ const ReportDetails = () => {
           review: review, 
           rated: true, 
           rated_at: new Date().toISOString(),
+          status: 'verified',
+          verified_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', id);
@@ -240,7 +314,8 @@ const ReportDetails = () => {
           title: 'New Rating Received!',
           message: `You received a ${rating}⭐ rating for your work at ${report.address}`,
           type: 'success',
-          report_id: id
+          report_id: id,
+          action_url: `/report/${id}`
         }]);
       }
       
@@ -287,25 +362,33 @@ const ReportDetails = () => {
       pending: 'bg-orange-500 text-white',
       assigned: 'bg-blue-500 text-white',
       collected: 'bg-purple-500 text-white',
+      ready_for_rating: 'bg-yellow-500 text-white',
       verified: 'bg-green-600 text-white'
     };
     return `px-2 py-1 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500 text-white'}`;
   };
 
-  const getStatusIcon = (status) => {
+  const getStatusText = (status) => {
     switch(status) {
-      case 'pending': return 'fa-clock';
-      case 'assigned': return 'fa-user-check';
-      case 'collected': return 'fa-truck';
-      case 'verified': return 'fa-check-circle';
-      default: return 'fa-question';
+      case 'pending': return 'Pending';
+      case 'assigned': return 'Assigned';
+      case 'collected': return 'Collected - Awaiting Verification';
+      case 'ready_for_rating': return 'Ready for Rating';
+      case 'verified': return 'Verified & Completed';
+      default: return status;
     }
   };
 
   const getProgressSteps = () => {
-    const steps = ['pending', 'assigned', 'collected', 'verified'];
+    const steps = ['pending', 'assigned', 'collected', 'ready_for_rating', 'verified'];
     const currentIndex = steps.indexOf(report?.status);
-    const stepLabels = { pending: 'Reported', assigned: 'Assigned', collected: 'Collected', verified: 'Verified' };
+    const stepLabels = { 
+      pending: 'Reported', 
+      assigned: 'Assigned', 
+      collected: 'Collected', 
+      ready_for_rating: 'Verify', 
+      verified: 'Completed' 
+    };
     
     return steps.map((step, index) => ({
       name: step,
@@ -345,6 +428,16 @@ const ReportDetails = () => {
             {report.is_emergency && (
               <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
                 <i className="fas fa-exclamation-triangle mr-1"></i>Emergency
+              </span>
+            )}
+            {report.delayed && (
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+                <i className="fas fa-clock mr-1"></i>Delayed
+              </span>
+            )}
+            {report.worker_no_show && (
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                <i className="fas fa-user-slash mr-1"></i>No-Show
               </span>
             )}
           </div>
@@ -443,9 +536,7 @@ const ReportDetails = () => {
             
             {worker.phone && (
               <button
-                onClick={() => {
-                  setShowCallConfirm(true);
-                }}
+                onClick={() => setShowCallConfirm(true)}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm self-start"
               >
                 <i className="fas fa-phone"></i>
@@ -496,9 +587,7 @@ const ReportDetails = () => {
             
             {resident.phone && (
               <button
-                onClick={() => {
-                  setShowCallConfirm(true);
-                }}
+                onClick={() => setShowCallConfirm(true)}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm self-start"
               >
                 <i className="fas fa-phone"></i>
@@ -509,7 +598,53 @@ const ReportDetails = () => {
         </div>
       )}
 
-      {/* Waste Assessment for Workers - Only visible to workers */}
+      {/* Resident Verification Section - Before Rating */}
+      {report.status === 'collected' && !report.verified_by_resident && user?.role === 'resident' && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <h3 className="font-semibold text-green-800 mb-2 flex items-center gap-2">
+            <i className="fas fa-check-circle"></i>
+            Verify Waste Collection
+          </h3>
+          <p className="text-sm text-green-700 mb-3">
+            Has the waste been properly collected? Please verify before rating the worker.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={verifyByResident}
+              disabled={updating}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            >
+              <i className="fas fa-check mr-2"></i>Yes, Waste Collected
+            </button>
+            <button
+              onClick={() => setShowReportIssue(true)}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+            >
+              <i className="fas fa-exclamation-triangle mr-2"></i>Report Issue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Rating Section - After Resident Verification */}
+      {report.status === 'ready_for_rating' && !report.rated && user?.role === 'resident' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex justify-between items-center flex-wrap gap-3">
+            <div>
+              <h3 className="font-semibold text-yellow-800 text-sm sm:text-base">Rate the Worker</h3>
+              <p className="text-xs sm:text-sm text-yellow-700">How was your experience with the waste collector?</p>
+            </div>
+            <button
+              onClick={() => setShowRatingModal(true)}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm"
+            >
+              Rate Now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Waste Assessment for Workers */}
       {user?.role === 'worker' && report.status === 'assigned' && (
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 sm:p-5">
           <h2 className="font-semibold mb-3 flex items-center gap-2 text-purple-800 text-sm sm:text-base">
@@ -615,8 +750,7 @@ const ReportDetails = () => {
           <div>
             <p className="text-xs sm:text-sm text-gray-500">Status</p>
             <span className={getStatusBadge(report.status)}>
-              <i className={`fas ${getStatusIcon(report.status)} mr-1`}></i>
-              {report.status.toUpperCase()}
+              {getStatusText(report.status)}
             </span>
           </div>
           <div>
@@ -730,32 +864,41 @@ const ReportDetails = () => {
           </button>
         )}
         
-        {user?.role === 'admin' && report.status === 'collected' && (
+        {user?.role === 'admin' && report.status === 'ready_for_rating' && (
           <button
             onClick={markAsVerified}
             disabled={updating}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
           >
             <i className="fas fa-check-double mr-2"></i>
-            Verify Report
+            Verify & Complete
           </button>
         )}
       </div>
 
-      {/* Rating Section */}
-      {report.status === 'verified' && !report.rated && user?.role === 'resident' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex justify-between items-center flex-wrap gap-3">
-            <div>
-              <h3 className="font-semibold text-yellow-800 text-sm sm:text-base">Rate the Worker</h3>
-              <p className="text-xs sm:text-sm text-yellow-700">How was your experience with the waste collector?</p>
+      {/* Report Issue Modal */}
+      {showReportIssue && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold mb-3">Report Issue with Worker</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Select the issue you're experiencing:
+            </p>
+            <div className="space-y-2 mb-4">
+              <button
+                onClick={() => reportWorkerIssue('delay')}
+                className="w-full p-3 border rounded-lg text-left hover:bg-yellow-50 text-yellow-700"
+              >
+                <i className="fas fa-clock mr-2"></i> Worker is delayed / taking too long
+              </button>
+              <button
+                onClick={() => reportWorkerIssue('no-show')}
+                className="w-full p-3 border rounded-lg text-left hover:bg-red-50 text-red-600"
+              >
+                <i className="fas fa-user-slash mr-2"></i> Worker never showed up
+              </button>
             </div>
-            <button
-              onClick={() => setShowRatingModal(true)}
-              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm"
-            >
-              Rate Now
-            </button>
+            <button onClick={() => setShowReportIssue(false)} className="w-full px-4 py-2 border rounded-lg">Cancel</button>
           </div>
         </div>
       )}
@@ -768,7 +911,7 @@ const ReportDetails = () => {
               {user?.role === 'resident' ? 'Call Worker?' : 'Call Resident?'}
             </h3>
             <p className="text-gray-600 mb-4 text-sm">
-              You are about to call {user?.role === 'resident' ? worker?.full_name : resident?.full_name} at {' '}
+              You are about to call {user?.role === 'resident' ? worker?.full_name : resident?.full_name} at{' '}
               {user?.role === 'resident' ? worker?.phone : resident?.phone}
             </p>
             <div className="flex gap-3">
@@ -846,8 +989,10 @@ const ReportDetails = () => {
         <p><i className="fas fa-plus-circle mr-1"></i> Created: {new Date(report.created_at).toLocaleString()}</p>
         {report.assigned_at && <p className="mt-1"><i className="fas fa-user-check mr-1"></i> Assigned: {new Date(report.assigned_at).toLocaleString()}</p>}
         {report.collected_at && <p className="mt-1"><i className="fas fa-truck mr-1"></i> Collected: {new Date(report.collected_at).toLocaleString()}</p>}
-        {report.verified_at && <p className="mt-1"><i className="fas fa-check-circle mr-1"></i> Verified: {new Date(report.verified_at).toLocaleString()}</p>}
+        {report.resident_verified_at && <p className="mt-1"><i className="fas fa-check-circle mr-1"></i> Verified by Resident: {new Date(report.resident_verified_at).toLocaleString()}</p>}
+        {report.verified_at && <p className="mt-1"><i className="fas fa-check-double mr-1"></i> Completed: {new Date(report.verified_at).toLocaleString()}</p>}
         {report.rated && report.rating > 0 && <p className="mt-1"><i className="fas fa-star mr-1 text-yellow-500"></i> Rating: {report.rating}⭐</p>}
+        {report.delay_reported_at && <p className="mt-1 text-yellow-600"><i className="fas fa-clock mr-1"></i> Delay Reported: {new Date(report.delay_reported_at).toLocaleString()}</p>}
         <p className="mt-1"><i className="fas fa-edit mr-1"></i> Last updated: {new Date(report.updated_at).toLocaleString()}</p>
       </div>
     </div>

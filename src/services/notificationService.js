@@ -19,11 +19,6 @@ export const notificationService = {
         .single();
 
       if (error) throw error;
-      
-      if (Notification.permission === 'granted') {
-        new Notification(title, { body: message });
-      }
-      
       return data;
     } catch (error) {
       console.error('Failed to create notification:', error);
@@ -55,14 +50,9 @@ export const notificationService = {
         .eq('user_id', userId)
         .eq('read', false);
 
-      if (error) {
-        // Don't throw on error, just return 0
-        console.error('Failed to get unread count:', error.message);
-        return 0;
-      }
+      if (error) throw error;
       return count || 0;
     } catch (error) {
-      console.error('Failed to get unread count:', error.message);
       return 0;
     }
   },
@@ -77,7 +67,6 @@ export const notificationService = {
       if (error) throw error;
       return true;
     } catch (error) {
-      console.error('Failed to mark as read:', error);
       return false;
     }
   },
@@ -93,7 +82,6 @@ export const notificationService = {
       if (error) throw error;
       return true;
     } catch (error) {
-      console.error('Failed to mark all as read:', error);
       return false;
     }
   },
@@ -108,52 +96,19 @@ export const notificationService = {
       if (error) throw error;
       return true;
     } catch (error) {
-      console.error('Failed to delete notification:', error);
       return false;
     }
   },
 
-  subscribeToNotifications: (userId, onNewNotification, onUnreadCountChange) => {
-    let lastCount = 0;
+  handleNotificationClick: (notification) => {
+    // Mark as read first
+    notificationService.markAsRead(notification.id);
     
-    const interval = setInterval(async () => {
-      try {
-        const count = await notificationService.getUnreadCount(userId);
-        
-        if (count > lastCount && onNewNotification) {
-          onNewNotification({ count: count - lastCount });
-        }
-        
-        if (count !== lastCount && onUnreadCountChange) {
-          onUnreadCountChange(count);
-        }
-        
-        lastCount = count;
-      } catch (error) {
-        // Silently fail on polling errors
-      }
-    }, 15000); // Poll every 15 seconds
-    
-    return {
-      unsubscribe: () => clearInterval(interval)
-    };
-  },
-
-  requestBrowserPermission: async () => {
-    if (!('Notification' in window)) {
-      console.log('Browser does not support notifications');
-      return false;
+    // Navigate based on action_url or report_id
+    if (notification.action_url) {
+      window.location.href = notification.action_url;
+    } else if (notification.report_id) {
+      window.location.href = `/report/${notification.report_id}`;
     }
-
-    if (Notification.permission === 'granted') {
-      return true;
-    }
-
-    if (Notification.permission !== 'denied') {
-      const permission = await Notification.requestPermission();
-      return permission === 'granted';
-    }
-
-    return false;
   }
 };

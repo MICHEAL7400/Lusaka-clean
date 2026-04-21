@@ -189,12 +189,14 @@ const Worker = ({ user }) => {
       })
       .eq('id', job.id);
     
+    // Notify resident with clickable link
     await supabase.from('notifications').insert([{
       user_id: job.user_id,
       title: 'Worker Assigned',
       message: `A worker has been assigned to your report at ${job.address}`,
       type: 'success',
-      report_id: job.id
+      report_id: job.id,
+      action_url: `/report/${job.id}`
     }]);
     
     toast.success(`Job accepted: ${job.address}`);
@@ -215,27 +217,20 @@ const Worker = ({ user }) => {
     
     const task = myTasks.find(t => t.id === taskId);
     if (task) {
+      // Notify resident with clickable link
       await supabase.from('notifications').insert([{
         user_id: task.user_id,
         title: 'Waste Collected',
         message: `The waste at ${task.address} has been collected. Please verify.`,
         type: 'info',
-        report_id: taskId
+        report_id: taskId,
+        action_url: `/report/${taskId}`
       }]);
     }
     
     toast.success('Job marked as collected! Resident will verify');
     loadData();
     loadStats();
-  };
-
-  const getStatusBadge = (status) => {
-    const colors = {
-      assigned: 'bg-blue-100 text-blue-800',
-      collected: 'bg-purple-100 text-purple-800',
-      verified: 'bg-green-100 text-green-800'
-    };
-    return `px-2 py-1 rounded-full text-xs font-medium ${colors[status]}`;
   };
 
   const getVehicleRecommendation = (wasteType) => {
@@ -311,10 +306,23 @@ const Worker = ({ user }) => {
                     <div className="p-4 text-center text-gray-500 text-sm">No notifications</div>
                   ) : (
                     notifications.map(notif => (
-                      <div key={notif.id} className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${!notif.read ? 'bg-blue-50' : ''}`} onClick={() => markNotificationAsRead(notif.id)}>
+                      <div 
+                        key={notif.id} 
+                        className={`p-3 border-b cursor-pointer hover:bg-gray-50 ${!notif.read ? 'bg-blue-50' : ''}`} 
+                        onClick={async () => {
+                          if (!notif.read) await markNotificationAsRead(notif.id);
+                          if (notif.action_url) window.location.href = notif.action_url;
+                          else if (notif.report_id) window.location.href = `/report/${notif.report_id}`;
+                        }}
+                      >
                         <p className="text-sm font-medium">{notif.title}</p>
                         <p className="text-xs text-gray-600 mt-1">{notif.message}</p>
                         <p className="text-xs text-gray-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                        {(notif.action_url || notif.report_id) && (
+                          <p className="text-xs text-blue-500 mt-1 flex items-center gap-1">
+                            <i className="fas fa-share-alt"></i> Click to view
+                          </p>
+                        )}
                       </div>
                     ))
                   )}
@@ -375,7 +383,7 @@ const Worker = ({ user }) => {
                user?.vehicle_type === 'Pickup' ? '✓ Can handle most waste types' :
                user?.vehicle_type === 'Motorbike' ? '⚠️ Best for small to medium loads' :
                user?.vehicle_type === 'Bicycle' ? '⚠️ Best for small loads only' :
-               'Update your profile to add vehicle type for better job recommendations'}
+               'Update your profile to add vehicle type'}
             </p>
           </div>
           <Link to="/profile">
@@ -454,9 +462,6 @@ const Worker = ({ user }) => {
                           <i className="fas fa-calendar text-gray-400 text-xs"></i>
                           <p className="text-xs text-gray-400">{new Date(job.created_at).toLocaleString()}</p>
                         </div>
-                        {job.photo_url && (
-                          <img src={job.photo_url} alt="Evidence" className="h-12 w-12 object-cover rounded mt-1" />
-                        )}
                       </div>
                       <div className="flex gap-2">
                         <Link to={`/report/${job.id}`}>
@@ -485,16 +490,10 @@ const Worker = ({ user }) => {
                               Your vehicle: {user.vehicle_type} - {recommendation.suitable ? 'Suitable for this job' : 'May not be ideal for this waste type'}
                             </p>
                           )}
-                          {!user.vehicle_type && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              <i className="fas fa-info-circle mr-1"></i>
-                              Update your profile to add vehicle type for better recommendations
-                            </p>
-                          )}
                           {job.waste_type === 'hazardous' && (
                             <p className="text-xs text-red-600 mt-1">
                               <i className="fas fa-exclamation-triangle mr-1"></i>
-                              Special handling required for hazardous waste
+                              Special handling required
                             </p>
                           )}
                         </div>
@@ -539,15 +538,12 @@ const Worker = ({ user }) => {
                       <span className="text-xs bg-gray-100 px-2 py-0.5 rounded capitalize">
                         <i className="fas fa-trash mr-1"></i>{task.waste_type}
                       </span>
-                      {task.description && (
-                        <span className="text-xs text-gray-500">{task.description.substring(0, 50)}</span>
-                      )}
                     </div>
                     <p className="text-xs text-gray-400 mt-1">Assigned: {new Date(task.assigned_at).toLocaleString()}</p>
                     <textarea
                       value={workerNote}
                       onChange={(e) => setWorkerNote(e.target.value)}
-                      placeholder="Add notes about this job (access code, special instructions)..."
+                      placeholder="Add notes about this job..."
                       className="mt-2 w-full px-2 py-1 border rounded text-xs sm:text-sm"
                       rows="2"
                     />
@@ -594,7 +590,6 @@ const Worker = ({ user }) => {
                     <p className="text-xs text-gray-500">{task.waste_type}</p>
                     <p className="text-xs text-gray-400 mt-1">Completed: {new Date(task.collected_at).toLocaleString()}</p>
                     {task.rating > 0 && <p className="text-xs text-yellow-600 mt-1">Rating: {task.rating}⭐</p>}
-                    {task.worker_note && <p className="text-xs text-gray-500 mt-1 italic">Note: {task.worker_note}</p>}
                   </div>
                   <Link to={`/report/${task.id}`}>
                     <button className="px-3 py-1 border rounded-lg text-sm hover:bg-gray-50">View</button>

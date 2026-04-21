@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -25,6 +26,7 @@ const Admin = () => {
     assigned: 0,
     collected: 0,
     verified: 0,
+    ready_for_rating: 0,
     totalUsers: 0,
     activeWorkers: 0,
     totalReportsThisMonth: 0
@@ -82,6 +84,7 @@ const Admin = () => {
         pending: reportsData?.filter(r => r.status === 'pending').length || 0,
         assigned: reportsData?.filter(r => r.status === 'assigned').length || 0,
         collected: reportsData?.filter(r => r.status === 'collected').length || 0,
+        ready_for_rating: reportsData?.filter(r => r.status === 'ready_for_rating').length || 0,
         verified: reportsData?.filter(r => r.status === 'verified').length || 0,
         totalUsers: (workersData?.length || 0) + (residentsData?.length || 0),
         activeWorkers: workersData?.filter(w => w.available === true).length || 0,
@@ -112,7 +115,8 @@ const Admin = () => {
           title: `Report ${status}`,
           message: `Your report at ${report.address} has been ${status}`,
           type: status === 'verified' ? 'success' : 'info',
-          report_id: reportId
+          report_id: reportId,
+          action_url: `/report/${reportId}`
         }]);
       }
       
@@ -131,7 +135,12 @@ const Admin = () => {
       
       const { error } = await supabase
         .from('waste_reports')
-        .update({ assigned_worker_id: workerId, status: 'assigned', assigned_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .update({ 
+          assigned_worker_id: workerId, 
+          status: 'assigned', 
+          assigned_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
         .eq('id', reportId);
       
       if (error) throw error;
@@ -142,7 +151,8 @@ const Admin = () => {
           title: 'New Task Assigned',
           message: `You have been assigned to collect waste at ${report?.address}`,
           type: 'success',
-          report_id: reportId
+          report_id: reportId,
+          action_url: `/report/${reportId}`
         }]);
       }
       
@@ -152,7 +162,8 @@ const Admin = () => {
           title: 'Worker Assigned',
           message: `A worker has been assigned to your report at ${report?.address}`,
           type: 'info',
-          report_id: reportId
+          report_id: reportId,
+          action_url: `/report/${reportId}`
         }]);
       }
       
@@ -237,19 +248,10 @@ const Admin = () => {
       pending: 'bg-orange-500 text-white',
       assigned: 'bg-blue-500 text-white',
       collected: 'bg-purple-500 text-white',
+      ready_for_rating: 'bg-yellow-500 text-white',
       verified: 'bg-green-600 text-white'
     };
     return `px-1.5 py-0.5 rounded-full text-xs font-medium ${colors[status] || 'bg-gray-500 text-white'}`;
-  };
-
-  const getStatusIcon = (status) => {
-    switch(status) {
-      case 'pending': return 'fa-clock';
-      case 'assigned': return 'fa-user-check';
-      case 'collected': return 'fa-truck';
-      case 'verified': return 'fa-check-circle';
-      default: return 'fa-question';
-    }
   };
 
   const filteredReports = reports.filter(r =>
@@ -257,6 +259,10 @@ const Admin = () => {
     r.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     r.profiles?.full_name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const delayedReports = reports.filter(r => r.delayed === true || r.worker_no_show === true);
+  const collectedReports = reports.filter(r => r.status === 'collected');
+  const readyForRatingReports = reports.filter(r => r.status === 'ready_for_rating');
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -291,8 +297,33 @@ const Admin = () => {
         </div>
       </div>
 
+      {/* Delayed / No-Show Reports Alert */}
+      {delayedReports.length > 0 && (
+        <div className="bg-red-50 border border-red-300 rounded-lg p-4">
+          <h3 className="font-semibold text-red-800 flex items-center gap-2">
+            <i className="fas fa-exclamation-triangle"></i>
+            Urgent: Delayed / No-Show Reports ({delayedReports.length})
+          </h3>
+          <div className="mt-2 space-y-2">
+            {delayedReports.slice(0, 3).map(report => (
+              <div key={report.id} className="bg-white p-2 rounded flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-medium">{report.address}</p>
+                  <p className="text-xs text-red-600">
+                    {report.delayed ? '⚠️ Worker Delayed' : '🚨 Worker Never Showed'}
+                  </p>
+                </div>
+                <Link to={`/report/${report.id}`}>
+                  <button className="px-2 py-1 bg-red-600 text-white rounded text-xs">View & Reassign</button>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+      <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
         <div className="bg-white p-2 rounded-lg shadow text-center">
           <i className="fas fa-flag text-blue-500 text-sm"></i>
           <p className="text-base font-bold">{stats.total}</p>
@@ -313,6 +344,11 @@ const Admin = () => {
           <p className="text-base font-bold text-purple-600">{stats.collected}</p>
           <p className="text-xs text-purple-600">Collected</p>
         </div>
+        <div className="bg-yellow-50 p-2 rounded-lg text-center">
+          <i className="fas fa-star text-yellow-600 text-sm"></i>
+          <p className="text-base font-bold text-yellow-600">{stats.ready_for_rating}</p>
+          <p className="text-xs text-yellow-600">Ready Rating</p>
+        </div>
         <div className="bg-green-50 p-2 rounded-lg text-center">
           <i className="fas fa-check-circle text-green-600 text-sm"></i>
           <p className="text-base font-bold text-green-600">{stats.verified}</p>
@@ -330,19 +366,47 @@ const Admin = () => {
         </div>
       </div>
 
+      {/* Status Distribution */}
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
+        <div className="bg-orange-100 p-1.5 rounded-lg text-center">
+          <p className="text-orange-700 text-xs">Pending</p>
+          <p className="text-sm font-bold text-orange-600">{Math.round((stats.pending / stats.total) * 100) || 0}%</p>
+        </div>
+        <div className="bg-blue-100 p-1.5 rounded-lg text-center">
+          <p className="text-blue-700 text-xs">Assigned</p>
+          <p className="text-sm font-bold text-blue-600">{Math.round((stats.assigned / stats.total) * 100) || 0}%</p>
+        </div>
+        <div className="bg-purple-100 p-1.5 rounded-lg text-center">
+          <p className="text-purple-700 text-xs">Collected</p>
+          <p className="text-sm font-bold text-purple-600">{Math.round((stats.collected / stats.total) * 100) || 0}%</p>
+        </div>
+        <div className="bg-yellow-100 p-1.5 rounded-lg text-center">
+          <p className="text-yellow-700 text-xs">Ready Rating</p>
+          <p className="text-sm font-bold text-yellow-600">{Math.round((stats.ready_for_rating / stats.total) * 100) || 0}%</p>
+        </div>
+        <div className="bg-green-100 p-1.5 rounded-lg text-center">
+          <p className="text-green-700 text-xs">Verified</p>
+          <p className="text-sm font-bold text-green-600">{Math.round((stats.verified / stats.total) * 100) || 0}%</p>
+        </div>
+        <div className="bg-gray-100 p-1.5 rounded-lg text-center">
+          <p className="text-gray-700 text-xs">Resolution</p>
+          <p className="text-sm font-bold text-gray-600">{stats.total ? Math.round((stats.verified / stats.total) * 100) : 0}%</p>
+        </div>
+      </div>
+
       {/* Search */}
       <div className="relative">
         <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
         <input
           type="text"
-          placeholder="Search reports..."
+          placeholder="Search reports by address, ID, or reporter..."
           value={searchTerm}
           onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
           className="w-full pl-8 pr-3 py-1.5 border rounded-lg text-sm"
         />
       </div>
 
-      {/* Tabs - Horizontal Scrollable on Mobile */}
+      {/* Tabs */}
       <div className="border-b overflow-x-auto whitespace-nowrap pb-1 -mx-2 px-2">
         <div className="inline-flex gap-1">
           <button onClick={() => { setActiveTab('reports'); setCurrentPage(1); }} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'reports' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
@@ -373,16 +437,19 @@ const Admin = () => {
             </div>
           ) : (
             currentReports.map(report => (
-              <div key={report.id} className="bg-white rounded-lg border p-2">
+              <div key={report.id} className="bg-white rounded-lg border p-2 hover:shadow-md transition">
                 <div className="flex flex-wrap justify-between items-center gap-1">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
                       <span className="text-xs text-gray-500 font-mono">#{report.id.slice(0, 6)}</span>
                       <span className={getStatusBadge(report.status)}>{report.status}</span>
                       {report.is_emergency && <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">!</span>}
+                      {report.delayed && <span className="text-xs bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded">Delayed</span>}
+                      {report.worker_no_show && <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">No-Show</span>}
                     </div>
                     <p className="font-medium text-sm truncate">{report.address}</p>
                     <p className="text-xs text-gray-500 capitalize">{report.waste_type}</p>
+                    <p className="text-xs text-gray-400">By: {report.profiles?.full_name || 'Unknown'}</p>
                   </div>
                   <div className="flex gap-1 flex-shrink-0">
                     {report.status === 'pending' && (
@@ -392,6 +459,9 @@ const Admin = () => {
                       <button onClick={() => updateReportStatus(report.id, 'collected')} className="px-1.5 py-0.5 bg-purple-600 text-white rounded text-xs hover:bg-purple-700">Collect</button>
                     )}
                     {report.status === 'collected' && (
+                      <button onClick={() => updateReportStatus(report.id, 'ready_for_rating')} className="px-1.5 py-0.5 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700">Ready</button>
+                    )}
+                    {report.status === 'ready_for_rating' && (
                       <button onClick={() => updateReportStatus(report.id, 'verified')} className="px-1.5 py-0.5 bg-green-600 text-white rounded text-xs hover:bg-green-700">Verify</button>
                     )}
                     <button onClick={() => deleteReport(report.id)} className="px-1.5 py-0.5 border border-red-300 text-red-600 rounded text-xs hover:bg-red-50">X</button>
@@ -401,7 +471,6 @@ const Admin = () => {
             ))
           )}
           
-          {/* Pagination */}
           {filteredReports.length > itemsPerPage && (
             <div className="flex justify-center items-center gap-1 pt-2">
               <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="px-2 py-0.5 text-xs bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50">Prev</button>
@@ -492,7 +561,10 @@ const Admin = () => {
             </div>
           ) : (
             notifications.slice(0, 20).map(notif => (
-              <div key={notif.id} className="bg-white rounded-lg border p-3">
+              <div key={notif.id} className="bg-white rounded-lg border p-3 cursor-pointer hover:shadow-md transition" onClick={() => {
+                if (notif.action_url) window.location.href = notif.action_url;
+                else if (notif.report_id) window.location.href = `/report/${notif.report_id}`;
+              }}>
                 <div className="flex items-start gap-2">
                   <i className={`fas text-sm mt-0.5 ${
                     notif.type === 'success' ? 'fa-check-circle text-green-500' :
@@ -509,6 +581,11 @@ const Admin = () => {
                     </div>
                     <p className="text-xs text-gray-600 mt-1">{notif.message}</p>
                     <p className="text-xs text-gray-400 mt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                    {(notif.action_url || notif.report_id) && (
+                      <p className="text-xs text-blue-500 mt-1 flex items-center gap-1">
+                        <i className="fas fa-share-alt"></i> Click to view details
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -526,6 +603,7 @@ const Admin = () => {
               <div><div className="flex justify-between text-xs"><span>Pending</span><span className="font-bold text-orange-600">{stats.pending}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-orange-500 h-1.5 rounded-full" style={{ width: `${(stats.pending / stats.total) * 100 || 0}%` }}></div></div></div>
               <div><div className="flex justify-between text-xs"><span>Assigned</span><span className="font-bold text-blue-600">{stats.assigned}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${(stats.assigned / stats.total) * 100 || 0}%` }}></div></div></div>
               <div><div className="flex justify-between text-xs"><span>Collected</span><span className="font-bold text-purple-600">{stats.collected}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${(stats.collected / stats.total) * 100 || 0}%` }}></div></div></div>
+              <div><div className="flex justify-between text-xs"><span>Ready Rating</span><span className="font-bold text-yellow-600">{stats.ready_for_rating}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-yellow-500 h-1.5 rounded-full" style={{ width: `${(stats.ready_for_rating / stats.total) * 100 || 0}%` }}></div></div></div>
               <div><div className="flex justify-between text-xs"><span>Verified</span><span className="font-bold text-green-600">{stats.verified}</span></div><div className="w-full bg-gray-200 rounded-full h-1.5 mt-1"><div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${(stats.verified / stats.total) * 100 || 0}%` }}></div></div></div>
             </div>
           </div>
@@ -538,10 +616,36 @@ const Admin = () => {
               <div className="text-center p-2 bg-yellow-50 rounded"><p className="text-lg font-bold text-yellow-600">{stats.totalReportsThisMonth}</p><p className="text-xs text-gray-600">This Month</p></div>
             </div>
           </div>
+          <div className="bg-white p-4 rounded-lg shadow">
+            <h3 className="font-semibold text-sm mb-3">Worker Performance</h3>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs">Top Rated Worker</span>
+                <span className="text-xs font-bold text-green-600">
+                  {workers.length > 0 ? Math.max(...workers.map(w => w.rating || 0)).toFixed(1) : 0}⭐
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs">Most Active Worker</span>
+                <span className="text-xs font-bold text-blue-600">
+                  {workers.length > 0 ? Math.max(...workers.map(w => w.completed_jobs || 0)) : 0} jobs
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs">Average Response Time</span>
+                <span className="text-xs font-bold text-purple-600">
+                  {collectedReports.length > 0 ? 
+                    Math.round(collectedReports.reduce((acc, r) => 
+                      acc + (new Date(r.collected_at).getTime() - new Date(r.assigned_at).getTime()), 0) / collectedReports.length / (1000 * 60 * 60)
+                    ) : 0} hours
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Assign Modal */}
+      {/* Assign Modal with Report Details Preview */}
       {showAssignModal && selectedReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-3">
@@ -549,6 +653,21 @@ const Admin = () => {
               <h2 className="text-sm font-bold">Assign Worker</h2>
               <button onClick={() => setShowAssignModal(false)} className="text-gray-400 text-lg">&times;</button>
             </div>
+            
+            {/* Report Details Preview */}
+            <div className="bg-gray-50 p-3 rounded-lg mb-3">
+              <h4 className="font-semibold text-sm mb-2">Report Details:</h4>
+              <p className="text-xs"><strong>Address:</strong> {selectedReport.address}</p>
+              <p className="text-xs"><strong>Waste Type:</strong> {selectedReport.waste_type}</p>
+              <p className="text-xs"><strong>Description:</strong> {selectedReport.description?.substring(0, 100)}</p>
+              {selectedReport.is_emergency && (
+                <p className="text-xs text-red-600 font-semibold mt-1">🚨 EMERGENCY - Prioritize this</p>
+              )}
+              {selectedReport.photo_url && (
+                <img src={selectedReport.photo_url} alt="Evidence" className="h-16 w-16 object-cover rounded mt-2" />
+              )}
+            </div>
+            
             <p className="mb-2 text-xs">Assign to: <strong>{selectedReport.address}</strong></p>
             <div className="space-y-1 max-h-80 overflow-y-auto">
               {workers.filter(w => w.available).length === 0 ? (
@@ -558,6 +677,7 @@ const Admin = () => {
                   <button key={worker.id} onClick={() => assignWorker(selectedReport.id, worker.id)} disabled={assigning} className="w-full p-2 border rounded-lg text-left hover:bg-gray-50 text-xs">
                     <p className="font-medium text-xs">{worker.full_name || 'Unnamed'}</p>
                     <p className="text-xs text-gray-500">Zone: {worker.zone} | Phone: {worker.phone || 'N/A'}</p>
+                    <p className="text-xs text-gray-400">Vehicle: {worker.vehicle_type || 'N/A'} | Rating: {worker.rating || 0}⭐</p>
                   </button>
                 ))
               )}
@@ -576,7 +696,7 @@ const Admin = () => {
             </div>
             <div className="space-y-2">
               <input type="text" placeholder="Title" value={broadcastTitle} onChange={(e) => setBroadcastTitle(e.target.value)} className="w-full px-2 py-1 border rounded-lg text-sm" />
-              <textarea placeholder="Message" value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} rows="2" className="w-full px-2 py-1 border rounded-lg resize-none text-sm"></textarea>
+              <textarea placeholder="Message" value={broadcastMessage} onChange={(e) => setBroadcastMessage(e.target.value)} rows="2" className="w-full px-2 py-1 border rounded-lg resize-none text-sm" />
               <select value={broadcastType} onChange={(e) => setBroadcastType(e.target.value)} className="w-full px-2 py-1 border rounded-lg text-sm">
                 <option value="info">Information</option>
                 <option value="success">Success</option>
