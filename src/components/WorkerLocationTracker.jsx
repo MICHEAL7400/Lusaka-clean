@@ -1,149 +1,181 @@
-// src/components/WorkerLocationMap.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import toast from 'react-hot-toast';
 
-// Fix marker icons
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
+const WorkerLocationTracker = ({ workerId }) => {
+  const [tracking, setTracking] = useState(false);
+  const [lastLocation, setLastLocation] = useState(null);
+  const [accuracy, setAccuracy] = useState(null);
+  const [locationError, setLocationError] = useState(null);
+  const watchIdRef = useRef(null);
+  const isMountedRef = useRef(true);
 
-const WorkerLocationMap = ({ workerId, reportLocation }) => {
-  const [workerLocation, setWorkerLocation] = useState(null);
-  const [distance, setDistance] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Save location to Supabase (production)
+  const saveLocationToSupabase = async (latitude, longitude, acc) => {
+    if (!workerId) return false;
+    
+    try {
+      const { error } = await supabase
+        .from('worker_locations')
+        .upsert({
+          worker_id: workerId,
+          latitude: latitude,
+          longitude: longitude,
+          accuracy: Math.round(acc || 0),
+          timestamp: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'worker_id' });
+      
+      if (error) {
+        console.error('Supabase location save error:', error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Location save exception:', err);
+      return false;
+    }
+  };
+
+  const handlePosition = async (position) => {
+    const { latitude, longitude, accuracy: acc } = position.coords;
+    
+    if (isMountedRef.current) {
+      setLastLocation({ latitude, longitude });
+      setAccuracy(acc);
+      setLocationError(null);
+    }
+    
+    // Save to Supabase
+    await saveLocationToSupabase(latitude, longitude, acc);
+    console.log('📍 Location saved to Supabase:', { latitude, longitude, accuracy: acc });
+  };
+
+  const handleError = (err) => {
+    console.warn('Geolocation error:', err.code, err.message);
+    
+    switch(err.code) {
+      case 1:
+        setLocationError('Permission denied. Please allow location access.');
+        toast.error('Location permission denied');
+        stopTracking();
+        break;
+      case 2:
+        setLocationError('Position unavailable. Check GPS.');
+        break;
+      case 3:
+        setLocationError('Searching for GPS signal...');
+        break;
+      default:
+        setLocationError(err.message);
+    }
+  };
+
+  const stopTracking = () => {
+    if (watchIdRef.current) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setTracking(false);
+    toast('Location sharing stopped', { icon: '📍' });
+  };
+
+  const startTracking = () => {
+    if (!workerId) {
+      toast.error('Worker ID not available');
+      return;
+    }
+    
+    if (!navigator.geolocation) {
+      toast.error('Geolocation not supported');
+      return;
+    }
+
+    setTracking(true);
+    setLocationError(null);
+
+    // Get initial position
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        await handlePosition(position);
+        toast.success('📍 Sharing your location! Residents can now track you.');
+      },
+      (err) => {
+        console.warn('Initial position error:', err);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+
+    // Watch for continuous updates
+    const watchId = navigator.geolocation.watchPosition(
+      handlePosition,
+      handleError,
+      {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0,
+        distanceFilter: 10
+      }
+    );
+    
+    watchIdRef.current = watchId;
+  };
 
   useEffect(() => {
-    if (!workerId) return;
-
-    // Subscribe to worker location updates
-    const subscription = supabase
-      .channel(`worker-location-${workerId}`)
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'worker_locations', filter: `worker_id=eq.${workerId}` },
-        (payload) => {
-          if (payload.new) {
-            setWorkerLocation(payload.new);
-            calculateDistance(payload.new.latitude, payload.new.longitude);
-            setLoading(false);
-          }
-        }
-      )
-      .subscribe();
-
-    // Fetch initial location
-    fetchWorkerLocation();
-
-    return () => subscription.unsubscribe();
-  }, [workerId]);
-
-  const fetchWorkerLocation = async () => {
-    const { data } = await supabase
-      .from('worker_locations')
-      .select('*')
-      .eq('worker_id', workerId)
-      .single();
-    
-    if (data) {
-      setWorkerLocation(data);
-      calculateDistance(data.latitude, data.longitude);
-    }
-    setLoading(false);
-  };
-
-  const calculateDistance = (lat2, lon2) => {
-    if (!reportLocation) return;
-    
-    const R = 6371;
-    const lat1 = reportLocation.lat;
-    const lon1 = reportLocation.lng;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    setDistance((R * c).toFixed(2));
-  };
-
-  if (loading) {
-    return (
-      <div className="bg-blue-50 p-4 rounded-lg text-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-        <p className="text-sm text-blue-600 mt-2">Loading worker location...</p>
-      </div>
-    );
-  }
-
-  if (!workerLocation) {
-    return (
-      <div className="bg-yellow-50 p-4 rounded-lg text-center">
-        <i className="fas fa-map-marker-alt text-yellow-600 text-2xl mb-2"></i>
-        <p className="text-sm text-yellow-600">Worker location not available yet</p>
-        <p className="text-xs text-yellow-500 mt-1">They may be offline</p>
-      </div>
-    );
-  }
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (watchIdRef.current) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
 
   return (
-    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-      <h3 className="font-semibold text-green-800 mb-3 flex items-center gap-2">
-        <i className="fas fa-truck-moving"></i>
-        Worker Location
-      </h3>
-      
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-600">Distance from your location:</span>
-          <span className="font-bold text-green-700">{distance} km</span>
+    <div className="bg-white rounded-lg shadow p-4 border">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${tracking ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+          <div>
+            <h3 className="font-semibold text-sm">Live Location Sharing</h3>
+            <p className="text-xs text-gray-500">
+              {tracking 
+                ? accuracy 
+                  ? `📍 Active — ±${Math.round(accuracy)}m`
+                  : '🟢 Getting GPS...'
+                : '⚫ Not sharing'}
+            </p>
+          </div>
         </div>
-        
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-600">Last updated:</span>
-          <span className="text-xs text-gray-500">
-            {new Date(workerLocation.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
-        
-        <div className="h-48 w-full rounded-lg overflow-hidden">
-          <MapContainer
-            center={[workerLocation.latitude, workerLocation.longitude]}
-            zoom={13}
-            style={{ height: '100%', width: '100%' }}
-          >
-            <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution='&copy; OpenStreetMap'
-            />
-            <Marker position={[workerLocation.latitude, workerLocation.longitude]}>
-              <Popup>
-                Worker is here<br />
-                Last updated: {new Date(workerLocation.timestamp).toLocaleString()}
-              </Popup>
-            </Marker>
-            {reportLocation && (
-              <Marker position={[reportLocation.lat, reportLocation.lng]}>
-                <Popup>Your waste report location</Popup>
-              </Marker>
-            )}
-          </MapContainer>
-        </div>
-        
+
         <button
-          onClick={() => window.open(`https://maps.google.com/?q=${workerLocation.latitude},${workerLocation.longitude}`, '_blank')}
-          className="w-full mt-2 text-sm bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700"
+          onClick={tracking ? stopTracking : startTracking}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${
+            tracking
+              ? 'bg-red-600 text-white hover:bg-red-700'
+              : 'bg-green-600 text-white hover:bg-green-700'
+          }`}
         >
-          <i className="fas fa-directions mr-2"></i>
-          Get Directions
+          <i className={`fas ${tracking ? 'fa-stop' : 'fa-location-dot'} mr-2`}></i>
+          {tracking ? 'Stop Sharing' : 'Share Live Location'}
         </button>
       </div>
+
+      {locationError && (
+        <div className="mt-3 text-xs text-orange-600 bg-orange-50 p-2 rounded">
+          <i className="fas fa-satellite-dish mr-1"></i>
+          {locationError}
+        </div>
+      )}
+
+      {tracking && lastLocation && (
+        <div className="mt-3 text-xs text-gray-500 bg-gray-50 p-2 rounded">
+          📍 {lastLocation.latitude.toFixed(6)}, {lastLocation.longitude.toFixed(6)}
+          {accuracy && <span className="ml-2">±{Math.round(accuracy)}m</span>}
+        </div>
+      )}
     </div>
   );
 };
 
-export default WorkerLocationMap;
+export default WorkerLocationTracker;

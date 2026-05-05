@@ -1,108 +1,185 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-const WorkerMapTracker = ({ workerId, reportLocation }) => {
+const WorkerMapTracker = ({ workerId, reportLocation, worker, onOpenChat }) => {
   const [workerLocation, setWorkerLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [distance, setDistance] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!workerId) return;
+    if (!workerId) {
+      setLoading(false);
+      setError('No worker assigned yet');
+      return;
+    }
 
-    const subscription = supabase
-      .channel(`worker-location-${workerId}`)
-      .on('postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'worker_locations',
-          filter: `worker_id=eq.${workerId}`
-        },
-        (payload) => {
-          setWorkerLocation(payload.new);
-          setLoading(false);
+    const loadLocation = async () => {
+      try {
+        // Fetch from Supabase (production)
+        const { data, error: supabaseError } = await supabase
+          .from('worker_locations')
+          .select('*')
+          .eq('worker_id', workerId)
+          .maybeSingle();
+        
+        if (!supabaseError && data && data.latitude && data.longitude) {
+          setWorkerLocation({
+            latitude: data.latitude,
+            longitude: data.longitude,
+            accuracy: data.accuracy || 0
+          });
+          setLastUpdate(new Date(data.timestamp));
+          setError(null);
+          
+          if (reportLocation && reportLocation.lat && reportLocation.lng) {
+            const dist = calculateDistance(
+              data.latitude, 
+              data.longitude, 
+              reportLocation.lat, 
+              reportLocation.lng
+            );
+            setDistance(dist);
+            console.log('📏 Distance calculated:', dist, 'km');
+          }
+        } else {
+          setError('Worker has not shared their location yet');
         }
-      )
-      .subscribe();
-
-    fetchWorkerLocation();
-
-    return () => {
-      subscription.unsubscribe();
+      } catch (err) {
+        console.error('Error loading location:', err);
+        setError('Error loading worker location');
+      } finally {
+        setLoading(false);
+      }
     };
-  }, [workerId]);
 
-  const fetchWorkerLocation = async () => {
-    const { data } = await supabase
-      .from('worker_locations')
-      .select('*')
-      .eq('worker_id', workerId)
-      .single();
+    loadLocation();
     
-    setWorkerLocation(data);
-    setLoading(false);
-  };
+    // Poll every 3 seconds for updates
+    const interval = setInterval(loadLocation, 3000);
+    
+    return () => clearInterval(interval);
+  }, [workerId, reportLocation]);
 
-  const calculateDistance = () => {
-    if (!workerLocation || !reportLocation) return null;
-    
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
     const R = 6371;
-    const lat1 = workerLocation.latitude;
-    const lon1 = workerLocation.longitude;
-    const lat2 = reportLocation.lat;
-    const lon2 = reportLocation.lng;
-    
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
               Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
               Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c;
-    
-    return distance.toFixed(2);
+    return (R * c).toFixed(2);
+  };
+
+  const getETA = () => {
+    if (!distance) return null;
+    const mins = Math.round(parseFloat(distance) * 2);
+    if (mins < 1) return 'Less than 1 minute';
+    if (mins < 60) return `~${mins} min${mins !== 1 ? 's' : ''}`;
+    const hours = Math.floor(mins / 60);
+    const minutes = mins % 60;
+    return minutes > 0 ? `~${hours}h ${minutes}m` : `~${hours} hour${hours !== 1 ? 's' : ''}`;
   };
 
   if (loading) {
     return (
-      <div className="bg-blue-50 p-4 rounded-lg">
-        <p className="text-sm text-blue-600">Loading worker location...</p>
+      <div className="bg-blue-50 p-4 rounded-lg text-center">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="text-sm text-blue-600 mt-2">Loading worker location...</p>
       </div>
     );
   }
 
-  if (!workerLocation) {
+  if (error || !workerLocation) {
     return (
-      <div className="bg-yellow-50 p-4 rounded-lg">
-        <p className="text-sm text-yellow-600">Worker location not available yet.</p>
+      <div className="bg-yellow-50 p-4 rounded-lg text-center">
+        <i className="fas fa-map-marker-alt text-yellow-600 text-2xl mb-2"></i>
+        <p className="text-sm text-yellow-600">{error || 'Worker location not available'}</p>
+        <p className="text-xs text-yellow-500 mt-1">Worker needs to click "Share Live Location"</p>
       </div>
     );
   }
-
-  const distance = calculateDistance();
 
   return (
     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-      <h3 className="font-medium text-green-800 mb-2 flex items-center gap-2">
-        <i className="fas fa-truck-moving"></i>
-        Worker Location
-      </h3>
-      <div className="space-y-2 text-sm">
-        <p className="text-green-700">
-          <span className="font-medium">Distance from your location:</span>{' '}
-          {distance ? `${distance} km` : 'Calculating...'}
-        </p>
-        <p className="text-green-600 text-xs">
-          Last updated: {new Date(workerLocation.timestamp).toLocaleTimeString()}
-        </p>
-        <button
-          onClick={() => {
-            window.open(`https://maps.google.com/?q=${workerLocation.latitude},${workerLocation.longitude}`, '_blank');
-          }}
-          className="mt-2 text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
-        >
-          <i className="fas fa-map-marker-alt mr-1"></i>
-          View on Map
-        </button>
+      <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+        <h3 className="font-semibold text-green-800 flex items-center gap-2">
+          <i className="fas fa-truck-moving text-green-600"></i>
+          Worker Location
+          <span className="text-xs text-green-600 font-normal">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block mr-1"></span>
+            Live
+          </span>
+        </h3>
+        <div className="flex gap-2">
+          {worker?.phone && (
+            <button
+              onClick={onOpenChat}
+              className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 flex items-center gap-1"
+            >
+              <i className="fas fa-comment"></i>
+              <span className="hidden sm:inline">Chat</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {distance && (
+          <>
+            <div className="bg-white rounded-lg p-3">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-gray-600 text-sm">Distance from you:</span>
+                <span className="font-bold text-green-700 text-lg">{distance} km</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600 text-sm">Estimated arrival:</span>
+                <span className="font-medium text-blue-600">{getETA()}</span>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-lg p-3">
+              <div className="text-xs text-gray-500 mb-1">
+                {parseFloat(distance) < 0.5 ? '🚀 Worker is very close!' : 
+                 parseFloat(distance) < 1 ? '📍 Worker is nearby' : 
+                 parseFloat(distance) < 2 ? '🚶 Worker is approaching' : 
+                 parseFloat(distance) < 5 ? '🚗 Worker is on the way' : 
+                 '🚚 Worker is en route'}
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(100, (1 - parseFloat(distance) / 10) * 100)}%` }}
+                ></div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="bg-white rounded p-2 text-xs font-mono text-gray-600 break-all">
+          📍 {workerLocation.latitude.toFixed(6)}, {workerLocation.longitude.toFixed(6)}
+          {workerLocation.accuracy && (
+            <span className="ml-2 text-gray-400">±{Math.round(workerLocation.accuracy)}m</span>
+          )}
+        </div>
+
+        <div className="flex justify-between text-xs text-gray-500">
+          <span>Last update:</span>
+          <span>{lastUpdate ? lastUpdate.toLocaleTimeString() : 'Just now'}</span>
+        </div>
+
+        <div className="flex gap-2">
+          <a
+            href={`https://www.google.com/maps/dir/?api=1&destination=${workerLocation.latitude},${workerLocation.longitude}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 text-center bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700 transition"
+          >
+            <i className="fas fa-directions mr-1"></i> Directions
+          </a>
+        </div>
       </div>
     </div>
   );

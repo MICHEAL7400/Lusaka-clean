@@ -17,6 +17,7 @@ import Map from './pages/Map';
 import About from './pages/About';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import ScheduledPickups from './pages/ScheduledPickups';
 
 // Components
 import Navbar from './components/layout/Navbar';
@@ -58,18 +59,27 @@ function App() {
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               
-              {/* Protected Routes - Only when user is logged in */}
+              {/* Resident Routes - Only residents can access */}
               {user && user.role === 'resident' && (
-                <Route path="/dashboard" element={<Dashboard />} />
+                <>
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/scheduled-pickups" element={<ScheduledPickups user={user} />} />
+                </>
               )}
+              
+              {/* Worker Routes - Only workers can access */}
               {user && user.role === 'worker' && (
-                <Route path="/dashboard" element={<Worker user={user} />} />
+                <>
+                  <Route path="/dashboard" element={<Worker user={user} />} />
+                </>
               )}
+              
+              {/* Admin Routes - Only admin can access */}
               {user && user.role === 'admin' && (
-                <Route path="/dashboard" element={<Admin />} />
-              )}
-              {user && user.role === 'admin' && (
-                <Route path="/admin" element={<Admin />} />
+                <>
+                  <Route path="/dashboard" element={<Admin />} />
+                  <Route path="/admin" element={<Admin />} />
+                </>
               )}
               
               {/* Common protected routes for all logged-in users */}

@@ -8,6 +8,7 @@ const Admin = () => {
   const [workers, setWorkers] = useState([]);
   const [residents, setResidents] = useState([]);
   const [notifications, setNotifications] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('reports');
   const [selectedReport, setSelectedReport] = useState(null);
@@ -19,14 +20,26 @@ const Admin = () => {
   const [broadcastMessage, setBroadcastMessage] = useState('');
   const [broadcastType, setBroadcastType] = useState('info');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedReports, setSelectedReports] = useState([]);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
+  const [showAddVehicleModal, setShowAddVehicleModal] = useState(false);
+  const [newVehicle, setNewVehicle] = useState({
+    registration: '',
+    type: 'Pickup',
+    driver_name: '',
+    last_service: '',
+    mileage: '',
+    fuel_level: 100
+  });
   const itemsPerPage = 10;
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
     assigned: 0,
     collected: 0,
-    verified: 0,
     ready_for_rating: 0,
+    verified: 0,
     totalUsers: 0,
     activeWorkers: 0,
     totalReportsThisMonth: 0
@@ -40,54 +53,33 @@ const Admin = () => {
 
   const loadAllData = async () => {
     try {
-      const { data: reportsData, error: reportsError } = await supabase
-        .from('waste_reports')
-        .select('*, profiles:user_id(full_name, email, phone)')
-        .order('created_at', { ascending: false });
+      const [reportsRes, workersRes, residentsRes, notifRes, vehiclesRes] = await Promise.all([
+        supabase.from('waste_reports').select('*, profiles:user_id(full_name, email, phone)').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').eq('role', 'worker').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').eq('role', 'resident').order('created_at', { ascending: false }),
+        supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('vehicles').select('*').order('created_at', { ascending: false })
+      ]);
       
-      if (reportsError) throw reportsError;
-      setReports(reportsData || []);
-      
-      const { data: workersData, error: workersError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'worker')
-        .order('created_at', { ascending: false });
-      
-      if (workersError) throw workersError;
-      setWorkers(workersData || []);
-      
-      const { data: residentsData, error: residentsError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'resident')
-        .order('created_at', { ascending: false });
-      
-      if (residentsError) throw residentsError;
-      setResidents(residentsData || []);
-      
-      const { data: notifData, error: notifError } = await supabase
-        .from('notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      
-      if (notifError) throw notifError;
-      setNotifications(notifData || []);
+      setReports(reportsRes.data || []);
+      setWorkers(workersRes.data || []);
+      setResidents(residentsRes.data || []);
+      setNotifications(notifRes.data || []);
+      setVehicles(vehiclesRes.data || []);
       
       const thisMonth = new Date();
       thisMonth.setDate(1);
-      const reportsThisMonth = reportsData?.filter(r => new Date(r.created_at) >= thisMonth) || [];
+      const reportsThisMonth = reportsRes.data?.filter(r => new Date(r.created_at) >= thisMonth) || [];
       
       setStats({
-        total: reportsData?.length || 0,
-        pending: reportsData?.filter(r => r.status === 'pending').length || 0,
-        assigned: reportsData?.filter(r => r.status === 'assigned').length || 0,
-        collected: reportsData?.filter(r => r.status === 'collected').length || 0,
-        ready_for_rating: reportsData?.filter(r => r.status === 'ready_for_rating').length || 0,
-        verified: reportsData?.filter(r => r.status === 'verified').length || 0,
-        totalUsers: (workersData?.length || 0) + (residentsData?.length || 0),
-        activeWorkers: workersData?.filter(w => w.available === true).length || 0,
+        total: reportsRes.data?.length || 0,
+        pending: reportsRes.data?.filter(r => r.status === 'pending').length || 0,
+        assigned: reportsRes.data?.filter(r => r.status === 'assigned').length || 0,
+        collected: reportsRes.data?.filter(r => r.status === 'collected').length || 0,
+        ready_for_rating: reportsRes.data?.filter(r => r.status === 'ready_for_rating').length || 0,
+        verified: reportsRes.data?.filter(r => r.status === 'verified').length || 0,
+        totalUsers: (workersRes.data?.length || 0) + (residentsRes.data?.length || 0),
+        activeWorkers: workersRes.data?.filter(w => w.available === true).length || 0,
         totalReportsThisMonth: reportsThisMonth.length
       });
       
@@ -178,6 +170,60 @@ const Admin = () => {
     }
   };
 
+  const bulkAssign = async (workerId) => {
+    for (const reportId of selectedReports) {
+      await supabase
+        .from('waste_reports')
+        .update({ assigned_worker_id: workerId, status: 'assigned', assigned_at: new Date().toISOString() })
+        .eq('id', reportId);
+    }
+    toast.success(`${selectedReports.length} reports assigned`);
+    setSelectedReports([]);
+    setBulkMode(false);
+    setShowBulkAssignModal(false);
+    loadAllData();
+  };
+
+  const bulkDelete = async () => {
+    if (!confirm(`Delete ${selectedReports.length} reports?`)) return;
+    for (const reportId of selectedReports) {
+      await supabase.from('waste_reports').delete().eq('id', reportId);
+    }
+    toast.success(`${selectedReports.length} reports deleted`);
+    setSelectedReports([]);
+    setBulkMode(false);
+    loadAllData();
+  };
+
+  const addVehicle = async () => {
+    if (!newVehicle.registration) {
+      toast.error('Registration number required');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('vehicles').insert([{
+        ...newVehicle,
+        mileage: parseInt(newVehicle.mileage) || 0,
+        fuel_level: parseInt(newVehicle.fuel_level),
+        created_at: new Date().toISOString()
+      }]);
+      if (error) throw error;
+      toast.success('Vehicle added successfully');
+      setShowAddVehicleModal(false);
+      setNewVehicle({ registration: '', type: 'Pickup', driver_name: '', last_service: '', mileage: '', fuel_level: 100 });
+      loadAllData();
+    } catch (err) {
+      toast.error('Failed to add vehicle');
+    }
+  };
+
+  const deleteVehicle = async (id) => {
+    if (!confirm('Remove this vehicle?')) return;
+    await supabase.from('vehicles').delete().eq('id', id);
+    toast.success('Vehicle removed');
+    loadAllData();
+  };
+
   const sendBroadcastNotification = async () => {
     if (!broadcastTitle || !broadcastMessage) {
       toast.error('Please enter both title and message');
@@ -261,8 +307,6 @@ const Admin = () => {
   );
 
   const delayedReports = reports.filter(r => r.delayed === true || r.worker_no_show === true);
-  const collectedReports = reports.filter(r => r.status === 'collected');
-  const readyForRatingReports = reports.filter(r => r.status === 'ready_for_rating');
 
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -284,11 +328,14 @@ const Admin = () => {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
             <h1 className="text-lg sm:text-xl font-bold">Admin Dashboard</h1>
-            <p className="text-green-100 text-xs">Manage reports, workers, residents</p>
+            <p className="text-green-100 text-xs">Manage reports, workers, residents, fleet</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => setShowBroadcastModal(true)} className="px-3 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-xs">
               <i className="fas fa-broadcast-tower mr-1"></i>Broadcast
+            </button>
+            <button onClick={() => setBulkMode(!bulkMode)} className="px-3 py-1 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-xs">
+              <i className="fas fa-layer-group mr-1"></i>{bulkMode ? 'Exit Bulk' : 'Bulk Mode'}
             </button>
             <button onClick={loadAllData} className="px-3 py-1 bg-white text-green-700 rounded-lg hover:bg-gray-100 text-xs">
               <i className="fas fa-sync-alt mr-1"></i>Refresh
@@ -366,34 +413,6 @@ const Admin = () => {
         </div>
       </div>
 
-      {/* Status Distribution */}
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-1.5">
-        <div className="bg-orange-100 p-1.5 rounded-lg text-center">
-          <p className="text-orange-700 text-xs">Pending</p>
-          <p className="text-sm font-bold text-orange-600">{Math.round((stats.pending / stats.total) * 100) || 0}%</p>
-        </div>
-        <div className="bg-blue-100 p-1.5 rounded-lg text-center">
-          <p className="text-blue-700 text-xs">Assigned</p>
-          <p className="text-sm font-bold text-blue-600">{Math.round((stats.assigned / stats.total) * 100) || 0}%</p>
-        </div>
-        <div className="bg-purple-100 p-1.5 rounded-lg text-center">
-          <p className="text-purple-700 text-xs">Collected</p>
-          <p className="text-sm font-bold text-purple-600">{Math.round((stats.collected / stats.total) * 100) || 0}%</p>
-        </div>
-        <div className="bg-yellow-100 p-1.5 rounded-lg text-center">
-          <p className="text-yellow-700 text-xs">Ready Rating</p>
-          <p className="text-sm font-bold text-yellow-600">{Math.round((stats.ready_for_rating / stats.total) * 100) || 0}%</p>
-        </div>
-        <div className="bg-green-100 p-1.5 rounded-lg text-center">
-          <p className="text-green-700 text-xs">Verified</p>
-          <p className="text-sm font-bold text-green-600">{Math.round((stats.verified / stats.total) * 100) || 0}%</p>
-        </div>
-        <div className="bg-gray-100 p-1.5 rounded-lg text-center">
-          <p className="text-gray-700 text-xs">Resolution</p>
-          <p className="text-sm font-bold text-gray-600">{stats.total ? Math.round((stats.verified / stats.total) * 100) : 0}%</p>
-        </div>
-      </div>
-
       {/* Search */}
       <div className="relative">
         <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs"></i>
@@ -418,6 +437,9 @@ const Admin = () => {
           <button onClick={() => setActiveTab('residents')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'residents' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
             <i className="fas fa-users mr-1"></i>Residents ({residents.length})
           </button>
+          <button onClick={() => setActiveTab('fleet')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'fleet' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
+            <i className="fas fa-truck mr-1"></i>Fleet ({vehicles.length})
+          </button>
           <button onClick={() => setActiveTab('notifications')} className={`px-3 py-1.5 text-sm rounded-t-lg ${activeTab === 'notifications' ? 'text-green-600 border-b-2 border-green-600 font-medium' : 'text-gray-500'}`}>
             <i className="fas fa-bell mr-1"></i>Notif ({notifications.length})
           </button>
@@ -427,7 +449,7 @@ const Admin = () => {
         </div>
       </div>
 
-      {/* Reports Tab */}
+      {/* Reports Tab with Bulk Mode Checkboxes */}
       {activeTab === 'reports' && (
         <div className="space-y-2">
           {currentReports.length === 0 ? (
@@ -438,14 +460,27 @@ const Admin = () => {
           ) : (
             currentReports.map(report => (
               <div key={report.id} className="bg-white rounded-lg border p-2 hover:shadow-md transition">
-                <div className="flex flex-wrap justify-between items-center gap-1">
+                <div className="flex items-center gap-2">
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      checked={selectedReports.includes(report.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedReports([...selectedReports, report.id]);
+                        } else {
+                          setSelectedReports(selectedReports.filter(id => id !== report.id));
+                        }
+                      }}
+                      className="w-4 h-4"
+                    />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1 flex-wrap">
                       <span className="text-xs text-gray-500 font-mono">#{report.id.slice(0, 6)}</span>
                       <span className={getStatusBadge(report.status)}>{report.status}</span>
                       {report.is_emergency && <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">!</span>}
                       {report.delayed && <span className="text-xs bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded">Delayed</span>}
-                      {report.worker_no_show && <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">No-Show</span>}
                     </div>
                     <p className="font-medium text-sm truncate">{report.address}</p>
                     <p className="text-xs text-gray-500 capitalize">{report.waste_type}</p>
@@ -551,6 +586,67 @@ const Admin = () => {
         </div>
       )}
 
+      {/* Fleet Management Tab */}
+      {activeTab === 'fleet' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="font-semibold text-base">Vehicle Fleet Management</h2>
+            <button onClick={() => setShowAddVehicleModal(true)} className="px-3 py-1 bg-green-600 text-white rounded-lg text-sm">
+              <i className="fas fa-plus mr-1"></i>Add Vehicle
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {vehicles.map(vehicle => (
+              <div key={vehicle.id} className="bg-white rounded-lg border p-3">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      vehicle.type === 'Truck' ? 'bg-blue-100' :
+                      vehicle.type === 'Pickup' ? 'bg-green-100' : 'bg-purple-100'
+                    }`}>
+                      <i className={`fas fa-truck ${
+                        vehicle.type === 'Truck' ? 'text-blue-600' :
+                        vehicle.type === 'Pickup' ? 'text-green-600' : 'text-purple-600'
+                      }`}></i>
+                    </div>
+                    <div>
+                      <p className="font-semibold text-sm">{vehicle.registration}</p>
+                      <p className="text-xs text-gray-500">{vehicle.type}</p>
+                    </div>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    vehicle.status === 'active' ? 'bg-green-100 text-green-700' :
+                    vehicle.status === 'maintenance' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'
+                  }`}>
+                    {vehicle.status || 'active'}
+                  </span>
+                </div>
+                
+                <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-1 text-xs">
+                  <p><i className="fas fa-calendar w-3 text-gray-400"></i> Last Service: {vehicle.last_service || 'N/A'}</p>
+                  <p><i className="fas fa-tachometer-alt w-3 text-gray-400"></i> Mileage: {vehicle.mileage?.toLocaleString() || 'N/A'} km</p>
+                  <p><i className="fas fa-gas-pump w-3 text-gray-400"></i> Fuel: {vehicle.fuel_level || 'N/A'}%</p>
+                  <p><i className="fas fa-user w-3 text-gray-400"></i> Driver: {vehicle.driver_name || 'Unassigned'}</p>
+                </div>
+                
+                <div className="mt-2 pt-2 border-t flex gap-2">
+                  <button onClick={() => deleteVehicle(vehicle.id)} className="flex-1 text-xs text-red-600 hover:bg-red-50 py-1 rounded">Remove</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {vehicles.length === 0 && (
+            <div className="bg-white rounded-lg border p-8 text-center text-gray-500">
+              <i className="fas fa-truck text-4xl mb-2"></i>
+              <p>No vehicles in fleet</p>
+              <button onClick={() => setShowAddVehicleModal(true)} className="mt-3 text-green-600">Add your first vehicle →</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Notifications Tab */}
       {activeTab === 'notifications' && (
         <div className="space-y-2">
@@ -619,33 +715,28 @@ const Admin = () => {
           <div className="bg-white p-4 rounded-lg shadow">
             <h3 className="font-semibold text-sm mb-3">Worker Performance</h3>
             <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs">Top Rated Worker</span>
-                <span className="text-xs font-bold text-green-600">
-                  {workers.length > 0 ? Math.max(...workers.map(w => w.rating || 0)).toFixed(1) : 0}⭐
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs">Most Active Worker</span>
-                <span className="text-xs font-bold text-blue-600">
-                  {workers.length > 0 ? Math.max(...workers.map(w => w.completed_jobs || 0)) : 0} jobs
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs">Average Response Time</span>
-                <span className="text-xs font-bold text-purple-600">
-                  {collectedReports.length > 0 ? 
-                    Math.round(collectedReports.reduce((acc, r) => 
-                      acc + (new Date(r.collected_at).getTime() - new Date(r.assigned_at).getTime()), 0) / collectedReports.length / (1000 * 60 * 60)
-                    ) : 0} hours
-                </span>
-              </div>
+              <div className="flex justify-between items-center"><span className="text-xs">Top Rated Worker</span><span className="text-xs font-bold text-green-600">{workers.length > 0 ? Math.max(...workers.map(w => w.rating || 0)).toFixed(1) : 0}⭐</span></div>
+              <div className="flex justify-between items-center"><span className="text-xs">Most Active Worker</span><span className="text-xs font-bold text-blue-600">{workers.length > 0 ? Math.max(...workers.map(w => w.completed_jobs || 0)) : 0} jobs</span></div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Assign Modal with Report Details Preview */}
+      {/* Bulk Action Bar */}
+      {bulkMode && selectedReports.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t p-4 z-50">
+          <div className="max-w-7xl mx-auto flex justify-between items-center">
+            <span className="text-sm">{selectedReports.length} reports selected</span>
+            <div className="flex gap-2">
+              <button onClick={() => setShowBulkAssignModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Assign Selected</button>
+              <button onClick={bulkDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm">Delete Selected</button>
+              <button onClick={() => setBulkMode(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Modal */}
       {showAssignModal && selectedReport && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg max-w-md w-full p-3">
@@ -653,21 +744,13 @@ const Admin = () => {
               <h2 className="text-sm font-bold">Assign Worker</h2>
               <button onClick={() => setShowAssignModal(false)} className="text-gray-400 text-lg">&times;</button>
             </div>
-            
-            {/* Report Details Preview */}
             <div className="bg-gray-50 p-3 rounded-lg mb-3">
               <h4 className="font-semibold text-sm mb-2">Report Details:</h4>
               <p className="text-xs"><strong>Address:</strong> {selectedReport.address}</p>
               <p className="text-xs"><strong>Waste Type:</strong> {selectedReport.waste_type}</p>
               <p className="text-xs"><strong>Description:</strong> {selectedReport.description?.substring(0, 100)}</p>
-              {selectedReport.is_emergency && (
-                <p className="text-xs text-red-600 font-semibold mt-1">🚨 EMERGENCY - Prioritize this</p>
-              )}
-              {selectedReport.photo_url && (
-                <img src={selectedReport.photo_url} alt="Evidence" className="h-16 w-16 object-cover rounded mt-2" />
-              )}
+              {selectedReport.is_emergency && <p className="text-xs text-red-600 font-semibold mt-1">🚨 EMERGENCY - Prioritize this</p>}
             </div>
-            
             <p className="mb-2 text-xs">Assign to: <strong>{selectedReport.address}</strong></p>
             <div className="space-y-1 max-h-80 overflow-y-auto">
               {workers.filter(w => w.available).length === 0 ? (
@@ -681,6 +764,50 @@ const Admin = () => {
                   </button>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Assign Modal */}
+      {showBulkAssignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-3">
+            <h2 className="text-sm font-bold mb-2">Assign {selectedReports.length} Reports</h2>
+            <div className="space-y-1 max-h-80 overflow-y-auto">
+              {workers.filter(w => w.available).map(worker => (
+                <button key={worker.id} onClick={() => bulkAssign(worker.id)} className="w-full p-2 border rounded-lg text-left hover:bg-gray-50 text-xs">
+                  <p className="font-medium text-xs">{worker.full_name || 'Unnamed'}</p>
+                  <p className="text-xs text-gray-500">Zone: {worker.zone} | Vehicle: {worker.vehicle_type || 'N/A'}</p>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setShowBulkAssignModal(false)} className="w-full mt-2 p-2 border rounded-lg text-xs">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Vehicle Modal */}
+      {showAddVehicleModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-4">
+            <h2 className="text-lg font-bold mb-4">Add New Vehicle</h2>
+            <div className="space-y-3">
+              <input type="text" placeholder="Registration Number *" value={newVehicle.registration} onChange={(e) => setNewVehicle({...newVehicle, registration: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              <select value={newVehicle.type} onChange={(e) => setNewVehicle({...newVehicle, type: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm">
+                <option value="Bicycle">Bicycle</option>
+                <option value="Motorbike">Motorbike</option>
+                <option value="Pickup">Pickup Truck</option>
+                <option value="Truck">Large Truck</option>
+              </select>
+              <input type="text" placeholder="Driver Name" value={newVehicle.driver_name} onChange={(e) => setNewVehicle({...newVehicle, driver_name: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              <input type="date" placeholder="Last Service Date" value={newVehicle.last_service} onChange={(e) => setNewVehicle({...newVehicle, last_service: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              <input type="number" placeholder="Mileage (km)" value={newVehicle.mileage} onChange={(e) => setNewVehicle({...newVehicle, mileage: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              <input type="number" placeholder="Fuel Level (%)" value={newVehicle.fuel_level} onChange={(e) => setNewVehicle({...newVehicle, fuel_level: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm" />
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setShowAddVehicleModal(false)} className="flex-1 px-4 py-2 border rounded-lg text-sm">Cancel</button>
+                <button onClick={addVehicle} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm">Add Vehicle</button>
+              </div>
             </div>
           </div>
         </div>

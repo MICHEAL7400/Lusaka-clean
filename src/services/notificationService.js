@@ -26,6 +26,18 @@ export const notificationService = {
     }
   },
 
+  // ADD THIS MISSING METHOD
+  createChatNotification: async ({ receiverId, senderName, message, reportId }) => {
+    return notificationService.createNotification({
+      userId: receiverId,
+      title: `💬 New message from ${senderName}`,
+      message: message.length > 100 ? message.substring(0, 100) + '...' : message,
+      type: 'info',
+      reportId: reportId,
+      actionUrl: `/report/${reportId}`
+    });
+  },
+
   getUserNotifications: async (userId) => {
     try {
       const { data, error } = await supabase
@@ -101,10 +113,8 @@ export const notificationService = {
   },
 
   handleNotificationClick: (notification) => {
-    // Mark as read first
     notificationService.markAsRead(notification.id);
     
-    // Navigate based on action_url or report_id
     if (notification.action_url) {
       window.location.href = notification.action_url;
     } else if (notification.report_id) {
