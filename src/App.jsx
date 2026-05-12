@@ -18,6 +18,7 @@ import About from './pages/About';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import ScheduledPickups from './pages/ScheduledPickups';
+import FAQ from './pages/FAQ';  // ADDED: Import FAQ page
 
 // Components
 import Navbar from './components/layout/Navbar';
@@ -58,6 +59,7 @@ function App() {
               <Route path="/map" element={<Map />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/faq" element={<FAQ />} />  {/* ADDED: FAQ Route */}
               
               {/* Resident Routes - Only residents can access */}
               {user && user.role === 'resident' && (

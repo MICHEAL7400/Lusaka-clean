@@ -53,6 +53,7 @@ const Navbar = () => {
           <div className="hidden md:flex items-center gap-4">
             <Link to="/map" className="text-gray-600 hover:text-green-600 text-sm">Map</Link>
             <Link to="/dashboard" className="text-gray-600 hover:text-green-600 text-sm">Dashboard</Link>
+            <Link to="/faq" className="text-gray-600 hover:text-green-600 text-sm">FAQ</Link>
             {user.role === 'resident' && (
               <Link to="/report" className="bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 text-sm">Report</Link>
             )}
@@ -75,6 +76,7 @@ const Navbar = () => {
         <div className="md:hidden border-t py-2 px-4 space-y-2 bg-white">
           <Link to="/map" className="block py-2 text-gray-600" onClick={() => setMobileMenuOpen(false)}>Map</Link>
           <Link to="/dashboard" className="block py-2 text-gray-600" onClick={() => setMobileMenuOpen(false)}>Dashboard</Link>
+          <Link to="/faq" className="block py-2 text-gray-600" onClick={() => setMobileMenuOpen(false)}>FAQ</Link>
           {user.role === 'resident' && (
             <Link to="/report" className="block py-2 text-green-600" onClick={() => setMobileMenuOpen(false)}>Report Waste</Link>
           )}
